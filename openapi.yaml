@@ -251,6 +251,49 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
 
+  /v1/subscribe:
+    parameters:
+      - $ref: "#/components/parameters/TenantHeader"
+    get:
+      operationId: subscribe
+      tags: [streams]
+      x-plane: data
+      x-requires-token: service
+      summary: Realtime event stream over Server-Sent Events (ADR-009).
+      description: |
+        Streams appended events as `text/event-stream`. **Service-level callers
+        only** — the raw log bypasses row policies, so the owning app subscribes
+        with a service token and relays to its own users.
+
+        Delivery is ordered and gap-free: the server first replays the log from
+        the cursor (`Last-Event-ID` header on reconnect, else `fromGlobalSeq`),
+        then tails live appends from an in-process bus. Each SSE frame carries
+        `id: <globalSeq>` (the reconnect cursor) and `event: <EventType>`; `data`
+        is the StoredEvent JSON. `: ping` comment lines are heartbeats. A
+        subscriber that falls too far behind is dropped and should reconnect
+        (its cursor makes catch-up lossless).
+      parameters:
+        - name: type
+          in: query
+          description: Only events of streams with this streamType (category subscription).
+          schema: { $ref: "#/components/schemas/Identifier" }
+        - name: fromGlobalSeq
+          in: query
+          description: Start cursor (superseded by the Last-Event-ID header on reconnect).
+          schema: { type: integer, minimum: 0 }
+        - name: Last-Event-ID
+          in: header
+          description: SSE reconnect cursor — the last globalSeq delivered.
+          schema: { type: string }
+      responses:
+        "200":
+          description: An open SSE stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
   /v1/query/{name}:
     parameters:
       - name: name

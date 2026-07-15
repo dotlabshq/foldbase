@@ -145,6 +145,55 @@ class Foldbase:
     def health(self) -> JSON:
         return self._call("GET", "/healthz")
 
+    def subscribe(
+        self,
+        type: Optional[str] = None,
+        from_global_seq: Optional[int] = None,
+        last_event_id: Optional[int] = None,
+    ):
+        """Subscribe to appended events over SSE (realtime), as a blocking
+        generator that yields each event dict. Ordered and gap-free; on a dropped
+        connection, re-call with the last yielded event's `globalSeq` to resume.
+        Requires a service token (the raw log bypasses row policies).
+
+            for event in fb.subscribe(type="task"):
+                handle(event)
+        """
+        params = {}
+        if type:
+            params["type"] = type
+        if from_global_seq is not None:
+            params["fromGlobalSeq"] = str(from_global_seq)
+        q = "?" + urllib.parse.urlencode(params) if params else ""
+        headers = self._headers(False)
+        headers["Accept"] = "text/event-stream"
+        if last_event_id is not None:
+            headers["Last-Event-ID"] = str(last_event_id)
+        req = urllib.request.Request(self.base_url + "/v1/subscribe" + q, headers=headers)
+        try:
+            resp = urllib.request.urlopen(req)  # no timeout — long-lived stream
+        except urllib.error.HTTPError as e:
+            payload = {}
+            try:
+                payload = json.loads(e.read().decode("utf-8"))
+            except Exception:
+                pass
+            raise FoldbaseError(e.code, payload.get("error", "error"), payload.get("message")) from None
+
+        buf = ""
+        for chunk in resp:
+            buf += chunk.decode("utf-8")
+            while "\n\n" in buf:
+                raw, buf = buf.split("\n\n", 1)
+                if raw.startswith(":"):
+                    continue  # heartbeat / comment
+                data = None
+                for line in raw.split("\n"):
+                    if line.startswith("data:"):
+                        data = line[5:].lstrip(" ")
+                if data is not None:
+                    yield json.loads(data)
+
     def catalog(self, catalog: Any) -> Any:
         """Bind an event catalog for typed, payload-validated writes (`emit`).
 

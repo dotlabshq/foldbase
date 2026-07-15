@@ -4,13 +4,16 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"regexp"
 	"strconv"
+	"time"
 
 	"github.com/dotlabshq/foldbase/internal/auth"
+	"github.com/dotlabshq/foldbase/internal/bus"
 	"github.com/dotlabshq/foldbase/internal/readmodel"
 	"github.com/dotlabshq/foldbase/internal/store"
 )
@@ -38,6 +41,7 @@ type App struct {
 	store *store.Store
 	reg   *readmodel.Registry
 	db    dbExec
+	bus   *bus.Bus
 }
 
 // dbExec is the minimal SQL surface the read-model engine needs.
@@ -45,7 +49,7 @@ type dbExec = readmodel.SQLDB
 
 // New builds the http.Handler.
 func New(st *store.Store, reg *readmodel.Registry, db readmodel.SQLDB) http.Handler {
-	a := &App{store: st, reg: reg, db: db}
+	a := &App{store: st, reg: reg, db: db, bus: bus.New()}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", a.health)
@@ -54,6 +58,7 @@ func New(st *store.Store, reg *readmodel.Registry, db readmodel.SQLDB) http.Hand
 	mux.HandleFunc("GET /v1/streams/{streamId}", a.withAuth(a.readStream))
 	mux.HandleFunc("GET /v1/events/by-correlation/{correlationId}", a.withAuth(a.byCorrelation))
 	mux.HandleFunc("GET /v1/events", a.withAuth(a.readAll))
+	mux.HandleFunc("GET /v1/subscribe", a.withAuth(a.subscribe))
 	mux.HandleFunc("POST /v1/query/{name}", a.withAuth(a.query))
 	mux.HandleFunc("PUT /v1/projections", a.withAuth(a.putProjection))
 	mux.HandleFunc("PUT /v1/policies", a.withAuth(a.putPolicy))
@@ -210,6 +215,11 @@ func (a *App) append(w http.ResponseWriter, r *http.Request, res *auth.Resolved)
 			break
 		}
 	}
+	// Publish to live subscribers (SSE). The event is already durable; a slow
+	// subscriber is dropped and reconnects from its cursor — never blocks here.
+	for _, e := range result.Events {
+		a.bus.Publish(res.Tenant, e)
+	}
 	writeJSON(w, 200, map[string]any{"events": result.Events, "version": result.Version, "projected": projected})
 }
 
@@ -231,6 +241,90 @@ func (a *App) byCorrelation(w http.ResponseWriter, r *http.Request, res *auth.Re
 		panic(err)
 	}
 	writeJSON(w, 200, evs)
+}
+
+// subscribe streams appended events over SSE (ADR-009). Service-level callers
+// only: the raw log bypasses row policies, so the owning app subscribes with a
+// service token and relays to its own users. Catch-up from a cursor
+// (Last-Event-ID or ?fromGlobalSeq), then live tail from the in-process bus;
+// each event's SSE id is its globalSeq, so reconnects resume gap-free.
+func (a *App) subscribe(w http.ResponseWriter, r *http.Request, res *auth.Resolved) {
+	if !res.CanWrite { // service token (or none mode) — same gate as append
+		writeErr(w, 403, "subscribe requires a service token")
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeErr(w, 500, "streaming unsupported")
+		return
+	}
+	typeFilter := r.URL.Query().Get("type")
+	from := int64(0)
+	if q := r.URL.Query().Get("fromGlobalSeq"); q != "" {
+		from, _ = strconv.ParseInt(q, 10, 64)
+	}
+	// SSE reconnect: Last-Event-ID (the last globalSeq we delivered) wins.
+	if lid := r.Header.Get("Last-Event-ID"); lid != "" {
+		if n, err := strconv.ParseInt(lid, 10, 64); err == nil {
+			from = n
+		}
+	}
+
+	// Subscribe to live BEFORE catch-up so nothing appended in between is lost;
+	// the lastSeq dedup drops the overlap.
+	id, ch, over := a.bus.Subscribe(res.Tenant)
+	defer a.bus.Unsubscribe(res.Tenant, id)
+
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Connection", "keep-alive")
+	h.Set("X-Accel-Buffering", "no") // disable proxy buffering (nginx)
+	w.WriteHeader(200)
+	flusher.Flush()
+
+	send := func(e store.StoredEvent) {
+		b, _ := json.Marshal(e)
+		fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", e.GlobalSeq, e.Type, b)
+		flusher.Flush()
+	}
+
+	// Catch-up: replay the log from the cursor (tenant-scoped, optional category).
+	lastSeq := from
+	events, err := a.store.ReadAll(res.Tenant, from, typeFilter, 0)
+	if err != nil {
+		return
+	}
+	for _, e := range events {
+		send(e)
+		lastSeq = e.GlobalSeq
+	}
+	// A comment line signals "caught up, now live" and doubles as a flush.
+	fmt.Fprint(w, ": live\n\n")
+	flusher.Flush()
+
+	ticker := time.NewTicker(25 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-over: // fell behind → end; client reconnects and catches up
+			return
+		case <-ticker.C:
+			fmt.Fprint(w, ": ping\n\n") // heartbeat keeps proxies from timing out
+			flusher.Flush()
+		case e := <-ch:
+			if e.GlobalSeq <= lastSeq {
+				continue // overlap with catch-up
+			}
+			if typeFilter != "" && e.StreamType != typeFilter {
+				continue
+			}
+			send(e)
+			lastSeq = e.GlobalSeq
+		}
+	}
 }
 
 // readAll pages the tenant log; ?type= narrows to one stream category.

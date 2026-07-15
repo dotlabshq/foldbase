@@ -108,6 +108,22 @@ curl -s "$BASE/v1/streams/task-1" -H "X-Tenant-ID: demo"                      # 
 curl -s -X POST $BASE/admin/rebuild -H "X-Tenant-ID: demo" -d '{}'            # replay log → rebuild views
 ```
 
+**Subscribe in realtime** (SSE — see new events the moment they're appended;
+open this in one terminal, append in another):
+
+```bash
+curl -sN "$BASE/v1/subscribe?type=task" -H "X-Tenant-ID: demo"
+# id: 3
+# event: TaskCreated
+# data: {"id":"019f…","streamId":"task-1","streamType":"task","type":"TaskCreated",...}
+#
+# : ping                                       ← heartbeat keeps the stream alive
+```
+
+Delivery is ordered and gap-free: on reconnect the stream resumes from the last
+`id` (globalSeq) via the `Last-Event-ID` header — catch-up then live tail. The
+owning app subscribes with a service token and relays to its users (ADR-009).
+
 ## Client SDKs
 
 **TypeScript** (`@baseworks/foldbase`) — primary. Typed event schemas drive

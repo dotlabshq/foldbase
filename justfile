@@ -27,6 +27,10 @@ conformance-go: build-go
 # Both implementations must green every check.
 conformance: conformance-ts conformance-go
 
+# Realtime (SSE) conformance — Go-first (ADR-009); targets the Go binary.
+realtime: build-go
+    node conformance/realtime.mjs --cmd "./bin/foldbase" --dir ./go
+
 # ── client smokes (ADR-007) ───────────────────────────────────────────────────
 
 smoke-ts: build-go
@@ -34,6 +38,12 @@ smoke-ts: build-go
 
 smoke-py: build-go
     cd clients/python && python3 tests/smoke.py
+
+subscribe-ts: build-go
+    cd clients/ts && node --import tsx test/subscribe.mjs
+
+subscribe-py: build-go
+    cd clients/python && python3 tests/subscribe.py
 
 # Python typed authoring layer test (needs pydantic; sets up a local venv).
 authoring-py: build-go
@@ -48,7 +58,7 @@ demo-py: build-go
     cd examples/taskboard-py && python3 board.py
 
 # Everything: conformance for both impls + both client smokes.
-test-all: conformance smoke-ts smoke-py
+test-all: conformance realtime smoke-ts smoke-py subscribe-ts subscribe-py
 
 # ── dev servers (also in ../../.claude/launch.json) ───────────────────────────
 

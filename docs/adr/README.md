@@ -13,6 +13,7 @@ bindings — are a separate series.)
 | [006](./006-go-no-orm.md) | Go rewrite; no ORM; SQL-injection defense as explicit invariants | accepted |
 | [007](./007-client-sdks.md) | One client package per language (TS, Python); engines live in the service | accepted |
 | [008](./008-stream-type.md) | `stream_type`: denormalized, client-supplied, NOT NULL; log reads page (default 1000) | accepted |
+| [009](./009-realtime-sse.md) | Realtime over SSE; in-process bus, service-token gated; TS reference frozen | accepted |
 
 Standing context (decided earlier, reaffirmed): **instance-per-app deployment —
 no shared central foldbase.** Each app runs its own instance as a private

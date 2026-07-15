@@ -147,6 +147,76 @@ export class Foldbase {
     return this.call('GET', '/healthz')
   }
 
+  /**
+   * Subscribe to appended events over SSE (realtime). `onEvent` fires for each
+   * event as it is appended; delivery is ordered and gap-free, resuming from the
+   * last seen globalSeq across automatic reconnects. Returns a handle — call
+   * `close()` to stop. Requires a service token (the raw log bypasses row
+   * policies; the app relays to its own users).
+   *
+   *   const sub = fb.subscribe({ type: 'task' }, (e) => render(e))
+   *   // …later
+   *   sub.close()
+   */
+  subscribe(
+    opts: { type?: string; fromGlobalSeq?: number },
+    onEvent: (event: StoredEvent) => void,
+    onError?: (err: unknown) => void,
+  ): { close: () => void } {
+    let lastId = opts.fromGlobalSeq
+    let closed = false
+    let ctrl: AbortController | null = null
+
+    const connect = async () => {
+      while (!closed) {
+        ctrl = new AbortController()
+        try {
+          const headers = this.headers(false)
+          if (lastId !== undefined) headers['Last-Event-ID'] = String(lastId)
+          const q = qs({ type: opts.type, fromGlobalSeq: lastId === undefined ? opts.fromGlobalSeq : undefined })
+          const res = await this.fetchImpl(`${this.baseUrl}/v1/subscribe${q}`, { headers, signal: ctrl.signal })
+          if (!res.ok || !res.body) throw new FoldbaseError(res.status, 'subscribe_failed')
+          const reader = res.body.getReader()
+          const dec = new TextDecoder()
+          let buf = ''
+          for (;;) {
+            const { value, done } = await reader.read()
+            if (done) break
+            buf += dec.decode(value, { stream: true })
+            let idx: number
+            while ((idx = buf.indexOf('\n\n')) >= 0) {
+              const raw = buf.slice(0, idx)
+              buf = buf.slice(idx + 2)
+              if (raw.startsWith(':')) continue // heartbeat
+              let id: string | undefined
+              let data: string | undefined
+              for (const line of raw.split('\n')) {
+                if (line.startsWith('id:')) id = line.slice(3).trim()
+                else if (line.startsWith('data:')) data = line.slice(5).replace(/^ /, '')
+              }
+              if (data !== undefined) {
+                if (id !== undefined) lastId = Number(id)
+                onEvent(JSON.parse(data) as StoredEvent)
+              }
+            }
+          }
+        } catch (err) {
+          if (closed) return
+          onError?.(err)
+        }
+        if (closed) return
+        await new Promise((r) => setTimeout(r, 1000)) // backoff, then reconnect from lastId
+      }
+    }
+    void connect()
+    return {
+      close: () => {
+        closed = true
+        ctrl?.abort()
+      },
+    }
+  }
+
   /** Bind an event catalog for typed, payload-validated writes (`emit`). */
   catalog<S extends EventShapes>(cat: EventCatalog<S>): TypedClient<S> {
     return new TypedClient<S>(this, cat)

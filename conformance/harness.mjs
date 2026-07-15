@@ -104,6 +104,64 @@ export function client(base) {
   }
 }
 
+// ── SSE client (for realtime tests) ───────────────────────────────────────────
+export async function openSSE(base, path, headers = {}) {
+  const ctrl = new AbortController()
+  const res = await fetch(`${base}${path}`, { headers, signal: ctrl.signal })
+  const events = []
+  const waiters = []
+  const notify = () => {
+    for (let i = waiters.length - 1; i >= 0; i--) {
+      if (events.length >= waiters[i].n) waiters.splice(i, 1)[0].resolve()
+    }
+  }
+  if (res.ok && res.body) {
+    ;(async () => {
+      try {
+        const reader = res.body.getReader()
+        const dec = new TextDecoder()
+        let buf = ''
+        for (;;) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buf += dec.decode(value, { stream: true })
+          let idx
+          while ((idx = buf.indexOf('\n\n')) >= 0) {
+            const raw = buf.slice(0, idx)
+            buf = buf.slice(idx + 2)
+            if (raw.startsWith(':')) continue // heartbeat / comment
+            const ev = {}
+            for (const line of raw.split('\n')) {
+              const c = line.indexOf(':')
+              const field = line.slice(0, c)
+              const val = line.slice(c + 1).replace(/^ /, '')
+              if (field === 'id' || field === 'event' || field === 'data') ev[field] = val
+            }
+            if (ev.data !== undefined) {
+              ev.json = JSON.parse(ev.data)
+              events.push(ev)
+              notify()
+            }
+          }
+        }
+      } catch {
+        /* aborted */
+      }
+    })()
+  }
+  return {
+    status: res.status,
+    events,
+    waitFor: (n, ms = 2500) =>
+      new Promise((resolve, reject) => {
+        if (events.length >= n) return resolve()
+        const t = setTimeout(() => reject(new Error(`timeout: wanted ${n} SSE events, got ${events.length}`)), ms)
+        waiters.push({ n, resolve: () => { clearTimeout(t); resolve() } })
+      }),
+    close: () => ctrl.abort(),
+  }
+}
+
 // ── assertion collector ───────────────────────────────────────────────────────
 export function makeChecker(suiteName) {
   const results = []
