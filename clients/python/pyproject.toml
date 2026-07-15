@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "foldbase"
+version = "0.1.0"
+description = "Python client for foldbase — append, query, and definitions over HTTP. Dependency-free."
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+# The core client needs nothing. The typed authoring layer needs pydantic.
+schema = ["pydantic>=2.0"]
+dev = ["pydantic>=2.0"]
+
+[tool.setuptools]
+packages = ["foldbase"]

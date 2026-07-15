@@ -1,0 +1,343 @@
+<title>eventstore-service — architecture</title>
+<style>
+  :root {
+    --paper: #f6f7f9;
+    --surface: #ffffff;
+    --sunk: #eef0f4;
+    --ink: #11151c;
+    --muted: #5a6577;
+    --faint: #8b95a6;
+    --line: #e0e4ea;
+    --line-strong: #cfd5df;
+    --accent: #2f6df0;      /* signal blue — append / flow */
+    --accent-soft: #e7effe;
+    --log: #159a6a;         /* append-only / durable */
+    --log-soft: #e2f5ec;
+    --warn: #b9791b;        /* concurrency conflict */
+    --warn-soft: #f8efdd;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Menlo", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #0d0f14; --surface: #14171e; --sunk: #0a0c10;
+      --ink: #e7eaf0; --muted: #99a3b5; --faint: #6b7486;
+      --line: #232833; --line-strong: #313846;
+      --accent: #5b9bff; --accent-soft: #16233c;
+      --log: #46c58e; --log-soft: #10241b;
+      --warn: #d9a94a; --warn-soft: #2a2113;
+    }
+  }
+  :root[data-theme="light"] {
+    --paper: #f6f7f9; --surface: #ffffff; --sunk: #eef0f4;
+    --ink: #11151c; --muted: #5a6577; --faint: #8b95a6;
+    --line: #e0e4ea; --line-strong: #cfd5df;
+    --accent: #2f6df0; --accent-soft: #e7effe;
+    --log: #159a6a; --log-soft: #e2f5ec;
+    --warn: #b9791b; --warn-soft: #f8efdd;
+  }
+  :root[data-theme="dark"] {
+    --paper: #0d0f14; --surface: #14171e; --sunk: #0a0c10;
+    --ink: #e7eaf0; --muted: #99a3b5; --faint: #6b7486;
+    --line: #232833; --line-strong: #313846;
+    --accent: #5b9bff; --accent-soft: #16233c;
+    --log: #46c58e; --log-soft: #10241b;
+    --warn: #d9a94a; --warn-soft: #2a2113;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: var(--sans); line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 24px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ── header ── */
+  header { border-bottom: 1px solid var(--line); }
+  .head-inner { padding: 56px 24px 40px; max-width: 940px; margin: 0 auto; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 18px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .eyebrow::before { content: ""; width: 22px; height: 1px; background: var(--accent); display: inline-block; }
+  h1 {
+    font-size: clamp(30px, 5vw, 46px); line-height: 1.05; margin: 0 0 16px;
+    letter-spacing: -0.025em; font-weight: 680; text-wrap: balance;
+  }
+  h1 .mono { font-family: var(--mono); font-weight: 600; letter-spacing: -0.03em; }
+  .lede { font-size: 19px; color: var(--muted); max-width: 62ch; margin: 0; text-wrap: pretty; }
+  .badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 26px; }
+  .badge {
+    font-family: var(--mono); font-size: 12px; padding: 5px 11px; border-radius: 999px;
+    border: 1px solid var(--line-strong); color: var(--muted); background: var(--surface);
+    display: inline-flex; align-items: center; gap: 7px;
+  }
+  .badge.ok { color: var(--log); border-color: color-mix(in srgb, var(--log) 40%, transparent); background: var(--log-soft); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  section { padding: 44px 0; border-bottom: 1px solid var(--line); }
+  .kicker {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--faint); margin: 0 0 8px;
+  }
+  h2 { font-size: 25px; letter-spacing: -0.02em; margin: 0 0 8px; font-weight: 640; text-wrap: balance; }
+  h2 + p.intro { color: var(--muted); margin: 0 0 26px; max-width: 64ch; }
+  h3 { font-size: 15px; margin: 26px 0 10px; letter-spacing: -0.01em; }
+  p { margin: 0 0 14px; }
+
+  /* ── pipeline diagram ── */
+  .pipe { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 26px 24px; overflow-x: auto; }
+  .flow { display: flex; align-items: stretch; gap: 0; min-width: 640px; }
+  .stage { flex: 1; display: flex; flex-direction: column; gap: 7px; padding: 0 6px; }
+  .stage .lbl { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+  .stage .box {
+    border: 1px solid var(--line-strong); border-radius: 10px; padding: 12px 13px;
+    background: var(--sunk); font-size: 13.5px; font-weight: 550; flex: 1;
+  }
+  .stage .box small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; margin-top: 3px; line-height: 1.4; }
+  .stage.truth .box { border-color: color-mix(in srgb, var(--log) 45%, var(--line-strong)); background: var(--log-soft); }
+  .stage.query .box { border-color: color-mix(in srgb, var(--accent) 45%, var(--line-strong)); background: var(--accent-soft); }
+  .arrow { display: flex; align-items: center; justify-content: center; color: var(--faint); font-family: var(--mono); padding: 0 2px; align-self: center; }
+  .flow-note {
+    margin-top: 18px; padding-top: 16px; border-top: 1px dashed var(--line-strong);
+    font-size: 13.5px; color: var(--muted); display: flex; gap: 10px; align-items: baseline;
+  }
+  .flow-note b { color: var(--log); font-weight: 600; }
+
+  /* ── tables ── */
+  .tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 520px; }
+  th, td { text-align: left; padding: 11px 15px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--faint); font-weight: 600; background: var(--sunk);
+  }
+  tr:last-child td { border-bottom: 0; }
+  td code, .ic { font-family: var(--mono); font-size: 12.5px; }
+  td .ic { color: var(--accent); }
+  .yes { color: var(--log); font-weight: 600; }
+  .no { color: var(--warn); font-weight: 600; }
+  .tag {
+    font-family: var(--mono); font-size: 11px; padding: 2px 7px; border-radius: 5px;
+    background: var(--sunk); color: var(--muted); border: 1px solid var(--line);
+  }
+
+  /* ── code ── */
+  pre {
+    background: var(--sunk); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 20px; overflow-x: auto; margin: 0 0 14px;
+    font-family: var(--mono); font-size: 13px; line-height: 1.65; color: var(--ink);
+  }
+  pre .c { color: var(--faint); }        /* comment */
+  pre .k { color: var(--accent); }        /* keyword */
+  pre .s { color: var(--log); }           /* string */
+  .cap { font-family: var(--mono); font-size: 11px; color: var(--faint); letter-spacing: .05em; text-transform: uppercase; margin: 0 0 8px; }
+
+  /* ── taxonomy chips ── */
+  .taxo { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .chip {
+    border: 1px solid var(--line); border-radius: 12px; padding: 16px 17px; background: var(--surface);
+    border-left: 3px solid var(--rail, var(--line-strong));
+  }
+  .chip .name { font-family: var(--mono); font-size: 13.5px; font-weight: 600; color: var(--rail, var(--ink)); }
+  .chip .desc { font-size: 13px; color: var(--muted); margin-top: 5px; }
+  .chip .life { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-top: 9px; letter-spacing: .04em; }
+  .chip.truth { --rail: var(--log); }
+  .chip.def { --rail: var(--accent); }
+  .chip.derived { --rail: var(--warn); }
+
+  ul.clean { list-style: none; padding: 0; margin: 0; }
+  ul.clean li { padding: 9px 0 9px 26px; position: relative; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+  ul.clean li:last-child { border-bottom: 0; }
+  ul.clean li::before { content: "→"; position: absolute; left: 0; color: var(--accent); font-family: var(--mono); }
+  ul.clean li b { color: var(--ink); font-weight: 600; }
+
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+  @media (max-width: 680px) { .two { grid-template-columns: 1fr; gap: 8px; } }
+
+  footer { padding: 34px 0 60px; color: var(--faint); font-size: 13px; }
+  footer .mono { font-family: var(--mono); }
+</style>
+
+<header>
+  <div class="head-inner">
+    <p class="eyebrow">Architecture · v1 contract</p>
+    <h1><span class="mono">eventstore-service</span> — the log, its views, and the way to query them</h1>
+    <p class="lede">An append-only event log over HTTP, plus its materialized read models and one generic query surface. The universal data-access layer for every project — each app runs its own private instance.</p>
+    <div class="badges">
+      <span class="badge ok"><span class="dot"></span>TS reference · 49/49 conformance</span>
+      <span class="badge ok"><span class="dot"></span>Go port · 49/49 · parity</span>
+      <span class="badge">clients: TypeScript · Python</span>
+      <span class="badge">db: sqld / SQLite → PostgreSQL</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section>
+    <p class="kicker">The pipeline</p>
+    <h2>Log first, always</h2>
+    <p class="intro">Events are the truth. Read models are derived, disposable views folded from the log by declarative rules — never an input to event production.</p>
+    <div class="pipe">
+      <div class="flow">
+        <div class="stage truth">
+          <span class="lbl">01 · write</span>
+          <div class="box">append(event)<small><code>events</code> table — append-only, optimistic concurrency, global order</small></div>
+        </div>
+        <div class="arrow">──▶</div>
+        <div class="stage">
+          <span class="lbl">02 · fold</span>
+          <div class="box">apply rules<small>declarative <code>_projections</code> — upsert / inc / delete, after commit</small></div>
+        </div>
+        <div class="arrow">──▶</div>
+        <div class="stage">
+          <span class="lbl">03 · materialize</span>
+          <div class="box">read_&lt;name&gt;<small>derived tables, one row per stream, disposable</small></div>
+        </div>
+        <div class="arrow">──▶</div>
+        <div class="stage query">
+          <span class="lbl">04 · read</span>
+          <div class="box">POST /v1/query/:name<small>generic, policy-gated, tenant-scoped</small></div>
+        </div>
+      </div>
+      <div class="flow-note">
+        <b>◆ the iron rule</b>
+        <span>The fold runs <em>after</em> the append commits. A fold failure can only leave a projection stale (the response carries <code class="ic">projected:false</code>, repaired by <code class="ic">POST&nbsp;/admin/rebuild</code>) — it can never invent or lose a fact.</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="kicker">Table taxonomy</p>
+    <h2>Three kinds of table, three lifecycles</h2>
+    <p class="intro">The naming is load-bearing. The query engine resolves names only through the registry, so <code>_</code>-prefixed physical tables are structurally unreachable from client input.</p>
+    <div class="taxo">
+      <div class="chip truth">
+        <div class="name">events</div>
+        <div class="desc">The log — the single source of truth. Immutable facts, corrected only by appending new events.</div>
+        <div class="life">append-only · sacred</div>
+      </div>
+      <div class="chip def">
+        <div class="name">_projections · _policies</div>
+        <div class="desc">Definitions as data, pushed by the owning app on its boot like migrations. Never queryable.</div>
+        <div class="life">control-plane managed</div>
+      </div>
+      <div class="chip derived">
+        <div class="name">read_&lt;name&gt;</div>
+        <div class="desc">Derived read models. Wiped and refolded from the log on demand — the log is authoritative.</div>
+        <div class="life">disposable · rebuild anytime</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="kicker">Trust boundary</p>
+    <h2>Auth is declared, and fails closed</h2>
+    <p class="intro">The mode is set explicitly via <code class="ic">EVENTSTORE_AUTH</code> — a secured mode with no secret, or production with no mode, refuses to boot. No silent fallback to an open service.</p>
+
+    <div class="cap">modes · ADR-002</div>
+    <div class="tbl-wrap" style="margin-bottom:22px;">
+      <table>
+        <thead><tr><th>EVENTSTORE_AUTH</th><th>Accepted callers</th><th>Use</th></tr></thead>
+        <tbody>
+          <tr><td><span class="tag">none</span></td><td>No token; tenant from <code>X-Tenant-ID</code></td><td>dev · trusted internal network</td></tr>
+          <tr><td><span class="tag">service-jwt</span></td><td>Service tokens only; user tokens rejected</td><td>sibling-to-app</td></tr>
+          <tr><td><span class="tag">user-jwt</span></td><td>Service tokens (full) + user tokens (query-only)</td><td>direct end-user reads</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="cap">token capabilities · ADR-003 / 004 / 005</div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th></th><th>Tenant source</th><th>X-Auth-*</th><th>Append</th><th>Control plane</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>service</b> <span class="tag">type:service</span></td>
+            <td><code>X-Tenant-ID</code> — required, no default. Token <code>org_id</code> pins it.</td>
+            <td class="yes">trusted</td><td class="yes">yes</td><td class="yes">yes</td>
+          </tr>
+          <tr>
+            <td><b>user</b> <span class="tag">type:user</span></td>
+            <td><code>org_id</code> claim</td>
+            <td class="no">ignored</td><td class="no">403</td><td class="no">403</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:20px; color:var(--muted); font-size:14px;">Row access is deny-by-default with <b>no bypass for anyone</b> — a service reading without an end-user identity registers an explicit <code class="ic">role:"service"</code> policy. Tenant isolation is structural: <code class="ic">tenant = ?</code> is AND-ed into every query and every fold, never dependent on policy text.</p>
+  </section>
+
+  <section>
+    <p class="kicker">Wiring an app</p>
+    <h2>Definitions on boot, then append &amp; query</h2>
+    <p class="intro">The owning app holds the service token and forwards the already-verified end-user identity. Same client shape in every language.</p>
+    <div class="cap">TypeScript · @baseworks/eventstore-client</div>
+<pre><span class="c">// on boot — idempotent, like migrations (control plane)</span>
+<span class="k">await</span> es.putProjection({
+  name: <span class="s">'tasks'</span>, columns: { owner: <span class="s">'text'</span>, status: <span class="s">'text'</span> },
+  on: { TaskCreated: { op: <span class="s">'upsert'</span>, set: { owner: <span class="s">'$.owner'</span>, status: <span class="s">'todo'</span> } } },
+})
+<span class="k">await</span> es.putPolicy({ name: <span class="s">'tasks'</span>, role: <span class="s">'*'</span>, using: <span class="s">'owner = :auth_uid'</span> })
+
+<span class="c">// write — optimistic concurrency; 409 ⇒ re-read &amp; retry</span>
+<span class="k">await</span> es.append(<span class="s">'t1'</span>, <span class="s">0</span>, [{ type: <span class="s">'TaskCreated'</span>, streamId: <span class="s">'t1'</span>,
+  actor: <span class="s">'alice'</span>, payload: { owner: <span class="s">'alice'</span> } }])
+
+<span class="c">// read — forward the end-user; the owner policy scopes the rows</span>
+<span class="k">const</span> { rows } = <span class="k">await</span> es.withAuth({ uid: <span class="s">'alice'</span> })
+  .query(<span class="s">'tasks'</span>, { where: { status: { eq: <span class="s">'todo'</span> } }, sort: [<span class="s">'created_at'</span>] })</pre>
+    <p style="color:var(--muted); font-size:13.5px; margin-top:2px;">The Python client is the same surface, dependency-free (stdlib only): <code class="ic">es.put_projection(...)</code>, <code class="ic">es.append(...)</code>, <code class="ic">es.with_auth(uid=...).query(...)</code>.</p>
+  </section>
+
+  <section>
+    <p class="kicker">Contract-first · polyglot</p>
+    <h2>One contract, many implementations</h2>
+    <div class="two">
+      <div>
+        <p style="color:var(--muted); font-size:14px;">Behavior is defined by <code class="ic">openapi.yaml</code> and locked by a language-agnostic conformance suite that boots any server binary and asserts the contract over HTTP. Every implementation must green the same 49 checks — that is what makes the Go rewrite safe and every client faithful.</p>
+        <ul class="clean" style="margin-top:16px;">
+          <li><b>TS reference</b> — Hono; the contract's reference impl</li>
+          <li><b>Go port</b> — <span class="mono" style="font-family:var(--mono);font-size:12.5px">net/http</span>, no ORM, one 14 MB static binary</li>
+          <li><b>Clients</b> — TS (zod authoring) · Python (stdlib)</li>
+        </ul>
+      </div>
+      <div>
+        <div class="cap">the env contract — every impl honors it</div>
+        <div class="tbl-wrap">
+          <table>
+            <tbody>
+              <tr><td><code>PORT</code></td><td>listen port</td></tr>
+              <tr><td><code>DB_URL</code></td><td><code>:memory:</code> · <code>file:</code> · sqld</td></tr>
+              <tr><td><code>EVENTSTORE_AUTH</code></td><td>none · service-jwt · user-jwt</td></tr>
+              <tr><td><code>EVENTSTORE_JWT_SECRET</code></td><td>HS256 realm secret</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="font-family:var(--mono); font-size:12px; color:var(--faint); margin-top:14px; line-height:1.7;">$ just conformance<br>&nbsp;&nbsp;<span style="color:var(--log)">✓</span> TS&nbsp;&nbsp;49/49<br>&nbsp;&nbsp;<span style="color:var(--log)">✓</span> Go&nbsp;&nbsp;49/49</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="border-bottom:0;">
+    <p class="kicker">Roadmap</p>
+    <h2>Toward Supabase parity</h2>
+    <ul class="clean">
+      <li><b>Client schema catalog</b> — typed event schemas drive read-model columns &amp; typed <code class="ic">emit</code> (designed, pending)</li>
+      <li><b>UUIDv7 event ids</b> — time-ordered inserts on the id index (proposed)</li>
+      <li><b>Realtime</b> — SSE / webhook off the append hook; the headline feature</li>
+      <li><b>Batch &amp; atomic rebuild</b> — streamed replay, shadow-table swap for scale</li>
+      <li><b>PostgreSQL dialect</b> — behind <span class="mono" style="font-family:var(--mono);font-size:12.5px">database/sql</span>, invisible to every client</li>
+      <li><b>EdDSA + kid rotation</b> — asymmetric verification, no shared secret to distribute</li>
+    </ul>
+  </section>
+
+  <footer>
+    <span class="mono">eventstore-service</span> · instance-per-app, no shared central store · contract: <span class="mono">openapi.yaml</span> · decisions: <span class="mono">docs/adr/001–007</span>
+  </footer>
+</main>

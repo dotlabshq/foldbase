@@ -1,0 +1,32 @@
+{
+  "name": "foldbase",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@baseworks/config": "^0.1.0",
+    "@baseworks/eventstore": "^0.1.0",
+    "@baseworks/readmodel": "^0.4.0",
+    "@getflect/sdk": "^0.1.0",
+    "@hono/node-server": "^1.19.14",
+    "@libsql/client": "^0.14.0",
+    "drizzle-orm": "^0.44.7",
+    "hono": "^4.12.27",
+    "@baseworks/auth": "^0.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
+  }
+}

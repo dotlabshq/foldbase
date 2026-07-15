@@ -1,0 +1,46 @@
+# ── dependencies ──────────────────────────────────────────────────────────────
+node_modules/
+clients/python/.venv/
+.venv/
+
+# ── build output ──────────────────────────────────────────────────────────────
+dist/
+go/bin/
+*.tsbuildinfo
+.turbo/
+
+# ── databases & local data ────────────────────────────────────────────────────
+# SQLite/libsql files created by dev runs, demos, and tests
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# ── secrets & local env ───────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Go ────────────────────────────────────────────────────────────────────────
+# test/coverage artifacts (the built binary is under go/bin/, ignored above)
+*.out
+coverage.txt
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── logs ──────────────────────────────────────────────────────────────────────
+*.log
+
+# ── editors & OS ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

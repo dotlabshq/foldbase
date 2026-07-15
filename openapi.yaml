@@ -1,0 +1,791 @@
+openapi: 3.1.0
+
+# ─────────────────────────────────────────────────────────────────────────────
+# foldbase — API contract v1
+#
+# THE SOURCE OF TRUTH. Implementations (TS today, Go next) and every client
+# SDK (TS, Python, …) are written against THIS document, and verified by the
+# language-agnostic conformance suite (see docs/adr/001). Behavior not in this
+# spec is not part of the contract.
+#
+# Decisions embedded here are recorded in docs/adr/ — notably:
+#   002 auth modes, 003 plane separation, 004 service-token tenant scoping,
+#   005 no policy bypass / user tokens query-only.
+# ─────────────────────────────────────────────────────────────────────────────
+
+info:
+  title: foldbase
+  version: "1.0.0-draft.1"
+  description: |
+    The append-only event log over HTTP, plus its materialized read models and
+    their generic query surface: **the log, the log's views, and the way to
+    query them.**
+
+    Deployment model: **no shared central instance.** Every app deploys its own
+    foldbase as a private sibling in its bundle. The platform's own instance
+    serves the platform only.
+
+    ## Auth model
+
+    Mode is declared explicitly via `FOLDBASE_AUTH` (fail-closed: an
+    unauthenticated service in production must be opted into, never inferred):
+
+    | `FOLDBASE_AUTH` | Accepted callers |
+    |---|---|
+    | `none`        | No token. Tenant from `X-Tenant-ID`. Dev / trusted internal networks only. |
+    | `service-jwt` | Service tokens only (`type: "service"` claim). User tokens rejected. |
+    | `user-jwt`    | Service tokens (full) **and** user tokens (data-plane query only). |
+
+    Token types (same HS256 realm secret; distinguished by the `type` claim):
+
+    | | Tenant source | `X-Tenant-ID` | `X-Auth-*` headers | Control-plane |
+    |---|---|---|---|---|
+    | **service token** (`type: "service"`) | `X-Tenant-ID` header — **required**, no default (400 if absent). If the token carries `org_id`, tenant is pinned to it and a mismatching header is a 403. | trusted | trusted (forwarded end-user identity) | allowed |
+    | **user token** (`type: "user"` or absent) | `org_id` claim | ignored | ignored — identity comes from `sub` / `role` / `email` claims | 403 |
+
+    ## Planes
+
+    Every operation is tagged `x-plane: data` or `x-plane: control`.
+    Control-plane operations (definitions + admin) require a **service token**
+    whenever auth is enabled.
+
+    User tokens are **query-only** in v1: appends require a service token.
+
+    ## Row access
+
+    Query results are gated by select policies — deny-by-default, no bypass for
+    anyone. A service reading without a forwarded end-user identity needs an
+    explicit `role: "service"` policy registered by the owning app.
+    Tenant isolation is structural: `tenant = ?` is AND-ed into every query and
+    every fold; it never depends on policy text.
+
+servers:
+  - url: "{EVENTS_SERVICE_URL}"
+    description: >
+      Injected by the platform into the owning app (private sibling binding).
+      Never hardcoded (platform ADR-0004).
+    variables:
+      EVENTS_SERVICE_URL:
+        default: "http://localhost:3001"
+
+tags:
+  - name: streams
+    description: "The log — append-only, optimistic concurrency, global order. (data-plane)"
+  - name: query
+    description: "Generic read-model query surface. (data-plane)"
+  - name: definitions
+    description: "Projections & policies — data, registered by the owning app on ITS boot. (control-plane)"
+  - name: admin
+    description: "Registry reload / read-model rebuild. (control-plane)"
+  - name: meta
+
+security:
+  - bearerAuth: []
+
+paths:
+  /healthz:
+    get:
+      operationId: health
+      tags: [meta]
+      security: []
+      summary: Liveness + registered projections.
+      responses:
+        "200":
+          description: Service is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, service, projections]
+                properties:
+                  ok: { type: boolean, const: true }
+                  service: { type: string, const: foldbase }
+                  projections:
+                    type: array
+                    items: { type: string }
+
+  /v1/streams/{streamId}:
+    parameters:
+      - $ref: "#/components/parameters/StreamId"
+      - $ref: "#/components/parameters/TenantHeader"
+    post:
+      operationId: appendToStream
+      tags: [streams]
+      x-plane: data
+      x-requires-token: service
+      summary: Append events to a stream (optimistic concurrency).
+      description: |
+        **Log first, always.** The append commits before the read-model fold
+        runs; a fold failure never fails the append — the response's
+        `projected: false` signals a stale projection, repaired by
+        `POST /admin/rebuild`.
+
+        `expectedVersion` is the version the caller believes the stream is at
+        (0 for a new stream). On mismatch → 409 with the actual version:
+        re-read, rebase, retry.
+
+        Requires a **service token** (user tokens are query-only in v1).
+        The service stamps the verified token subject into each stored event's
+        `metadata` for audit.
+      parameters:
+        - $ref: "#/components/parameters/AuthUid"
+        - $ref: "#/components/parameters/AuthRole"
+        - $ref: "#/components/parameters/AuthEmail"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AppendRequest" }
+      responses:
+        "200":
+          description: Events durably appended.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppendResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: Optimistic-concurrency conflict.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConcurrencyConflict" }
+    get:
+      operationId: readStream
+      tags: [streams]
+      x-plane: data
+      summary: Read one stream's history, in version order (paged).
+      parameters:
+        - name: fromVersion
+          in: query
+          description: Return only events with version > fromVersion.
+          schema: { type: integer, minimum: 0 }
+        - $ref: "#/components/parameters/ReadLimit"
+      responses:
+        "200":
+          description: The stream's events (empty array for an unknown stream).
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StoredEvent" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/streams/{streamId}/version:
+    parameters:
+      - $ref: "#/components/parameters/StreamId"
+      - $ref: "#/components/parameters/TenantHeader"
+    get:
+      operationId: streamVersion
+      tags: [streams]
+      x-plane: data
+      summary: Current version of a stream (0 if it has no events).
+      responses:
+        "200":
+          description: Current version.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version]
+                properties:
+                  version: { type: integer, minimum: 0 }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/events:
+    parameters:
+      - $ref: "#/components/parameters/TenantHeader"
+    get:
+      operationId: readAllEvents
+      tags: [streams]
+      x-plane: data
+      summary: Read the tenant log across streams, in global order (paged).
+      description: >
+        Cursor pagination: fromGlobalSeq + limit (default 1000, max 10000).
+        `type` narrows to one stream category — a read-model-free category read.
+      parameters:
+        - name: fromGlobalSeq
+          in: query
+          description: Return only events with globalSeq > fromGlobalSeq (replay cursor).
+          schema: { type: integer, minimum: 0 }
+        - name: type
+          in: query
+          description: Only events of streams with this streamType (ADR-008).
+          schema: { $ref: "#/components/schemas/Identifier" }
+        - $ref: "#/components/parameters/ReadLimit"
+      responses:
+        "200":
+          description: The tenant's events in globalSeq order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StoredEvent" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/events/by-correlation/{correlationId}:
+    parameters:
+      - name: correlationId
+        in: path
+        required: true
+        schema: { type: string, minLength: 1 }
+      - $ref: "#/components/parameters/TenantHeader"
+    get:
+      operationId: readByCorrelation
+      tags: [streams]
+      x-plane: data
+      summary: Read every event carrying a correlationId, in global order (lineage / tracing).
+      parameters:
+        - $ref: "#/components/parameters/ReadLimit"
+      responses:
+        "200":
+          description: Correlated events in globalSeq order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StoredEvent" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /v1/query/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        description: A registered projection name. Physical tables are never addressable.
+        schema: { $ref: "#/components/schemas/Identifier" }
+      - $ref: "#/components/parameters/TenantHeader"
+    post:
+      operationId: query
+      tags: [query]
+      x-plane: data
+      summary: Query a registered read model. POST-only, by design.
+      description: |
+        The single generic read endpoint — there are **no per-table routes and
+        no GET variant**; the JSON body is the extension point.
+
+        Row access: deny-by-default select policies. With a **service token**,
+        the auth context binds from the forwarded `X-Auth-*` headers; with a
+        **user token**, it binds from the verified token claims and `X-Auth-*`
+        headers are ignored. A policy referencing an `:auth_*` value absent
+        from the context denies (403) rather than widening.
+      parameters:
+        - $ref: "#/components/parameters/AuthUid"
+        - $ref: "#/components/parameters/AuthRole"
+        - $ref: "#/components/parameters/AuthEmail"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/QueryRequest" }
+      responses:
+        "200":
+          description: Matching rows.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueryResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/projections:
+    parameters:
+      - $ref: "#/components/parameters/TenantHeader"
+    put:
+      operationId: putProjection
+      tags: [definitions]
+      x-plane: control
+      x-requires-token: service
+      summary: Register or update a projection definition (idempotent, auto-rebuild).
+      description: |
+        Definitions are DATA authored by the owning app and pushed on ITS boot,
+        like migrations. Registration creates/evolves the `read_<name>` table
+        (additive ALTER only) and always ends with a rebuild for the calling
+        tenant — "events first, definition later" is safe; ordering never
+        matters.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProjectionDef" }
+      responses:
+        "200":
+          description: Definition saved; read model rebuilt for the calling tenant.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, name, rebuiltFrom]
+                properties:
+                  ok: { type: boolean, const: true }
+                  name: { $ref: "#/components/schemas/Identifier" }
+                  rebuiltFrom:
+                    type: integer
+                    minimum: 0
+                    description: Number of events replayed into the rebuilt model.
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /v1/policies:
+    parameters:
+      - $ref: "#/components/parameters/TenantHeader"
+    put:
+      operationId: putPolicy
+      tags: [definitions]
+      x-plane: control
+      x-requires-token: service
+      summary: Register or update a select policy (idempotent).
+      description: |
+        Deny-by-default — a projection with no policy for the caller's role
+        (nor a `*` fallback) is not queryable at all. There is no bypass: a
+        service reading without end-user context needs an explicit
+        `role: "service"` policy.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PolicyDef" }
+      responses:
+        "200":
+          description: Policy saved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, name, role]
+                properties:
+                  ok: { type: boolean, const: true }
+                  name: { $ref: "#/components/schemas/Identifier" }
+                  role: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/reload:
+    parameters:
+      - $ref: "#/components/parameters/TenantHeader"
+    post:
+      operationId: adminReload
+      tags: [admin]
+      x-plane: control
+      x-requires-token: service
+      summary: Re-read _projections/_policies into memory.
+      responses:
+        "200":
+          description: Registry reloaded.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, projections]
+                properties:
+                  ok: { type: boolean, const: true }
+                  projections:
+                    type: array
+                    items: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /admin/rebuild:
+    parameters:
+      - $ref: "#/components/parameters/TenantHeader"
+    post:
+      operationId: adminRebuild
+      tags: [admin]
+      x-plane: control
+      x-requires-token: service
+      summary: Replay the tenant log into one projection, or all of them.
+      description: |
+        Read models are disposable — the log is the truth. Rebuild wipes the
+        projection's rows for the calling tenant and refolds the log in
+        globalSeq order.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  $ref: "#/components/schemas/Identifier"
+                  description: Rebuild only this projection; omit for all.
+      responses:
+        "200":
+          description: Rebuild complete.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, rebuiltFrom]
+                properties:
+                  ok: { type: boolean, const: true }
+                  rebuiltFrom:
+                    type: integer
+                    minimum: 0
+                    description: Number of events replayed.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        HS256, realm secret held by the platform broker — app code never holds
+        the signing key. Claims contract:
+          `type`   — "service" | "user" (absent ⇒ user)
+          `org_id` — user token: the tenant (required);
+                     service token: optional narrowing (pins the tenant)
+          `sub`    — user token: end-user id (required); service token: app id
+          `role`, `email` — user token identity, bound into policies
+        Not sent at all in `FOLDBASE_AUTH=none` deployments.
+
+  parameters:
+    ReadLimit:
+      name: limit
+      in: query
+      required: false
+      description: Page size for log reads. Default 1000; explicit values up to 10000.
+      schema: { type: integer, minimum: 1, maximum: 10000, default: 1000 }
+    StreamId:
+      name: streamId
+      in: path
+      required: true
+      description: The entity/aggregate id whose history this stream is.
+      schema: { type: string, minLength: 1 }
+    TenantHeader:
+      name: X-Tenant-ID
+      in: header
+      required: false
+      description: |
+        Tenant selector. Semantics by caller:
+        service token → REQUIRED, no default (400 if absent; 403 on mismatch
+        with a token-pinned `org_id`). user token → ignored (tenant comes from
+        the token). `none` mode → required.
+      schema: { type: string, minLength: 1 }
+    AuthUid:
+      name: X-Auth-UID
+      in: header
+      required: false
+      description: >
+        Forwarded end-user id. Honored only with a service token (the caller
+        verified the end-user itself); ignored with user tokens.
+      schema: { type: string }
+    AuthRole:
+      name: X-Auth-Role
+      in: header
+      required: false
+      description: Forwarded end-user role. Service tokens only.
+      schema: { type: string }
+    AuthEmail:
+      name: X-Auth-Email
+      in: header
+      required: false
+      description: Forwarded end-user email. Service tokens only.
+      schema: { type: string }
+
+  responses:
+    BadRequest:
+      description: Malformed body, unknown/forbidden column, invalid operator, or missing tenant.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing, invalid, expired, or unscoped token.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: >
+        No select policy for the caller (deny-by-default), unsatisfiable policy,
+        user token on a service-only operation, or tenant/pin mismatch.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Unknown projection name.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Identifier:
+      type: string
+      pattern: "^[a-z][a-z0-9_]*$"
+      description: >
+        Lowercase identifier (a-z, 0-9, _). The ONLY shape a name may take
+        before it can ever reach an SQL identifier position; also the reason
+        `_`-prefixed physical tables are structurally unreachable.
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: "Machine-readable code (e.g. invalid_query, forbidden, not_found)."
+        message:
+          type: string
+          description: Human-readable detail. Not present in production for 5xx.
+
+    ConcurrencyConflict:
+      type: object
+      required: [error, actual]
+      properties:
+        error: { type: string, const: concurrency_conflict }
+        actual:
+          type: integer
+          minimum: 0
+          description: The stream's actual current version — re-read from here and retry.
+
+    NewEvent:
+      type: object
+      description: The intent to record a fact. The store assigns id/version/globalSeq/recordedAt.
+      required: [type, streamId, actor]
+      properties:
+        type:
+          type: string
+          pattern: "^[A-Z][A-Za-z0-9]+$"
+          description: 'PascalCase, past-tense fact: "NoteAdded", "TaskMoved".'
+        streamId: { type: string, minLength: 1 }
+        actor:
+          type: string
+          minLength: 1
+          description: Provenance — the identity that caused this fact.
+        payload:
+          type: object
+          additionalProperties: true
+          default: {}
+        causationId:
+          type: string
+          description: The command/event id that directly caused this one.
+        correlationId:
+          type: string
+          description: Groups every event of one logical flow.
+        metadata:
+          type: object
+          additionalProperties: true
+          default: {}
+
+    StoredEvent:
+      allOf:
+        - $ref: "#/components/schemas/NewEvent"
+        - type: object
+          required: [tenant, id, streamType, version, globalSeq, recordedAt, payload, metadata]
+          properties:
+            tenant: { type: string, minLength: 1 }
+            streamType:
+              type: string
+              description: The stream's kind ('' = untyped); same value stream-wide.
+            id: { type: string, format: uuid }
+            version:
+              type: integer
+              minimum: 1
+              description: Position within its stream (1, 2, 3, …).
+            globalSeq:
+              type: integer
+              minimum: 1
+              description: Monotonic order across the whole tenant log.
+            recordedAt:
+              type: integer
+              minimum: 0
+              description: Epoch-ms instant the fact was recorded.
+
+    AppendRequest:
+      type: object
+      required: [expectedVersion, events]
+      properties:
+        expectedVersion:
+          type: integer
+          minimum: 0
+          description: The stream version the caller believes is current (0 = new stream).
+        streamType:
+          type: string
+          pattern: "^([a-z][a-z0-9_]*)?$"
+          default: ""
+          description: >
+            The aggregate's kind (ADR-008). Fixed by the stream's FIRST append;
+            a later conflicting non-empty value is a 400. Drives the
+            GET /v1/events?type= category read. Optional — omitted/empty means
+            an untyped stream (back-compat).
+        events:
+          type: array
+          items: { $ref: "#/components/schemas/NewEvent" }
+          description: Appended atomically, versions assigned in order.
+
+    AppendResponse:
+      type: object
+      required: [events, version, projected]
+      properties:
+        events:
+          type: array
+          items: { $ref: "#/components/schemas/StoredEvent" }
+        version:
+          type: integer
+          minimum: 0
+          description: The stream version after this append.
+        projected:
+          type: boolean
+          description: >
+            Whether the read-model fold landed. false = the events are durable
+            but at least one projection is stale; POST /admin/rebuild repairs.
+
+    WhereOps:
+      type: object
+      additionalProperties: false
+      description: Operators on one column. All values are bound SQL parameters.
+      properties:
+        eq: { type: [string, number, boolean, "null"] }
+        ne: { type: [string, number, boolean, "null"] }
+        gt: { type: [string, number] }
+        gte: { type: [string, number] }
+        lt: { type: [string, number] }
+        lte: { type: [string, number] }
+        like: { type: string }
+        in:
+          type: array
+          items: { type: [string, number] }
+
+    WhereNode:
+      description: >
+        Recursive filter tree. A leaf maps column names (whitelisted against the
+        projection definition + policy allow/deny) to operators.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [and]
+          properties:
+            and:
+              type: array
+              items: { $ref: "#/components/schemas/WhereNode" }
+        - type: object
+          additionalProperties: false
+          required: [or]
+          properties:
+            or:
+              type: array
+              items: { $ref: "#/components/schemas/WhereNode" }
+        - type: object
+          propertyNames: { pattern: "^[a-z][a-z0-9_]*$" }
+          additionalProperties: { $ref: "#/components/schemas/WhereOps" }
+
+    QueryRequest:
+      type: object
+      description: PostgREST semantics, JSON transport.
+      properties:
+        select:
+          type: array
+          items: { $ref: "#/components/schemas/Identifier" }
+          description: Columns to return; defaults to every policy-visible column.
+        where: { $ref: "#/components/schemas/WhereNode" }
+        sort:
+          type: array
+          items:
+            type: string
+            pattern: "^-?[a-z][a-z0-9_]*$"
+          description: '"col" ascending, "-col" descending.'
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          default: 1000
+        offset:
+          type: integer
+          minimum: 0
+          default: 0
+
+    QueryResponse:
+      type: object
+      required: [rows, limit, offset]
+      properties:
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        limit: { type: integer }
+        offset: { type: integer }
+
+    OpRule:
+      type: object
+      description: |
+        One event-type rule. upsert merges columns into the row keyed by
+        (tenant, streamId): `set` values starting with "$." are payload paths,
+        anything else a literal; `inc` increments numeric columns. delete
+        removes the row.
+      required: [op]
+      properties:
+        op:
+          type: string
+          enum: [upsert, delete]
+        set:
+          type: object
+          propertyNames: { pattern: "^[a-z][a-z0-9_]*$" }
+          additionalProperties:
+            type: [string, number, boolean, "null"]
+        inc:
+          type: object
+          propertyNames: { pattern: "^[a-z][a-z0-9_]*$" }
+          additionalProperties: { type: number }
+
+    ProjectionDef:
+      type: object
+      description: >
+        A projection definition — rules as data. Declaring one both creates the
+        fold pipeline and whitelists the name on the query surface: registry
+        membership IS the allowlist.
+      required: [name, columns, on]
+      properties:
+        name: { $ref: "#/components/schemas/Identifier" }
+        table:
+          $ref: "#/components/schemas/Identifier"
+          description: Physical table; defaults to read_<name>.
+        columns:
+          type: object
+          propertyNames: { pattern: "^[a-z][a-z0-9_]*$" }
+          additionalProperties:
+            type: string
+            enum: [text, integer, real]
+          description: Declared columns besides the implicit tenant, id, updated_at.
+        on:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/OpRule" }
+          description: Event type → rule. Unlisted types are ignored.
+
+    PolicyDef:
+      type: object
+      description: >
+        A select policy. `using` is an OPERATOR-authored SQL fragment (trusted
+        config pushed over the control plane, like a migration) with `:auth_*`
+        placeholders — client input never reaches it.
+      required: [name, role]
+      properties:
+        name: { $ref: "#/components/schemas/Identifier" }
+        role:
+          type: string
+          minLength: 1
+          description: Caller role this policy applies to; "*" matches any role.
+        action:
+          type: string
+          enum: [select]
+          default: select
+        using:
+          type: string
+          description: 'Row filter AND-ed into every query, e.g. "owner = :auth_uid".'
+        allow:
+          type: array
+          items: { $ref: "#/components/schemas/Identifier" }
+          description: If set, only these columns are selectable/filterable/sortable.
+        deny:
+          type: array
+          items: { $ref: "#/components/schemas/Identifier" }
+          description: These columns are never selectable/filterable/sortable.
