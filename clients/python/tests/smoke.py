@@ -22,7 +22,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))  # projects/foldbase
 sys.path.insert(0, os.path.abspath(os.path.join(HERE, "..")))  # clients/python
 
-from foldbase import Foldbase, FoldbaseError  # noqa: E402
+from foldbase import FoldBase, FoldBaseError  # noqa: E402
 
 SECRET = "py-client-smoke-secret-32-chars-min!"
 
@@ -90,7 +90,7 @@ def main() -> int:
     print("\n▶ Python client smoke against %s\n" % ("Go" if use_go else "TS"))
     try:
         svc = sign_jwt({"sub": "app", "type": "service"}, SECRET)
-        es = Foldbase(base, token=svc, tenant="acme")
+        es = FoldBase(base, token=svc, tenant="acme")
 
         h = es.health()
         check("health ok", h.get("ok") is True and h.get("service") == "foldbase")
@@ -126,9 +126,9 @@ def main() -> int:
         conflict = None
         try:
             es.append("n1", 0, [{"type": "NoteAdded", "streamId": "n1", "actor": "u1", "payload": {"owner": "u1", "text": "dup", "createdAt": 1}}])
-        except FoldbaseError as e:
+        except FoldBaseError as e:
             conflict = e
-        check("409 FoldbaseError with actual", conflict is not None and conflict.status == 409 and conflict.actual == 1)
+        check("409 FoldBaseError with actual", conflict is not None and conflict.status == 409 and conflict.actual == 1)
 
         # delete + rebuild
         es.append("n1", 1, [{"type": "NoteDeleted", "streamId": "n1", "actor": "u1", "payload": {}}])
@@ -140,7 +140,7 @@ def main() -> int:
         denied = None
         try:
             es.query("notes")
-        except FoldbaseError as e:
+        except FoldBaseError as e:
             denied = e
         check("deny without uid 403", denied is not None and denied.status == 403)
     finally:

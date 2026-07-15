@@ -8,7 +8,7 @@
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { bootServer, signJwt } from '../../conformance/harness.mjs'
-import { Foldbase, FoldbaseError } from '../../clients/ts/src/index.ts'
+import { FoldBase, FoldBaseError } from '../../clients/ts/src/index.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const SECRET = 'taskboard-demo-secret-32-chars-minimum!'
@@ -53,7 +53,7 @@ const server = await bootServer({
 
 try {
   // The owning app registers definitions on ITS boot (idempotent).
-  const api = new Foldbase({ baseUrl: server.base, token: svcToken, tenant: 'acme' })
+  const api = new FoldBase({ baseUrl: server.base, token: svcToken, tenant: 'acme' })
   await api.putProjection(TASKS)
   await api.putProjection(STATS)
   await api.putPolicy(OWNER_POLICY)
@@ -88,13 +88,13 @@ try {
   try {
     await api.append('t1', 1, [{ type: 'TaskMoved', streamId: 't1', actor: 'alice', payload: { status: 'done' } }])
   } catch (e) {
-    if (e instanceof FoldbaseError && e.status === 409) {
+    if (e instanceof FoldBaseError && e.status === 409) {
       log(`\n  ⚠ stale write on t1 rejected (409); stream actually at version ${e.actual} — re-read & retry`)
     } else throw e
   }
 
   // Tenant isolation: another tenant's board is empty (same instance, own token).
-  const other = new Foldbase({ baseUrl: server.base, token: svcToken, tenant: 'globex' }).withAuth({ uid: 'alice' })
+  const other = new FoldBase({ baseUrl: server.base, token: svcToken, tenant: 'globex' }).withAuth({ uid: 'alice' })
   log(`\n  globex tenant sees ${(await other.query('tasks')).rows.length} tasks (isolation)`)
 
   // Read models are disposable — rebuild replays the log deterministically.

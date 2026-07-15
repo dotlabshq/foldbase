@@ -3,7 +3,7 @@
 Wire-compatible with any implementation of openapi.yaml (TS reference or Go).
 Dependency-free — stdlib urllib only, so it runs anywhere Python does.
 
-    es = Foldbase(base_url, token=svc_token, tenant="acme")
+    es = FoldBase(base_url, token=svc_token, tenant="acme")
     es.put_projection({"name": "notes", "columns": {...}, "on": {...}})
     es.append("n1", 0, [{"type": "NoteAdded", "streamId": "n1",
                          "actor": "u1", "payload": {...}}])
@@ -17,12 +17,12 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional
 
-from .errors import FoldbaseError
+from .errors import FoldBaseError
 
 JSON = Dict[str, Any]
 
 
-class Foldbase:
+class FoldBase:
     def __init__(
         self,
         base_url: str,
@@ -38,13 +38,13 @@ class Foldbase:
         self.timeout = timeout
 
     # ── derivations ────────────────────────────────────────────────────────────
-    def with_auth(self, **auth: str) -> "Foldbase":
+    def with_auth(self, **auth: str) -> "FoldBase":
         """Return a client with a different forwarded end-user identity."""
-        return Foldbase(self.base_url, self.token, self.tenant, auth, self.timeout)
+        return FoldBase(self.base_url, self.token, self.tenant, auth, self.timeout)
 
-    def with_tenant(self, tenant: str) -> "Foldbase":
+    def with_tenant(self, tenant: str) -> "FoldBase":
         """Return a client scoped to a different tenant."""
-        return Foldbase(self.base_url, self.token, tenant, self.auth, self.timeout)
+        return FoldBase(self.base_url, self.token, tenant, self.auth, self.timeout)
 
     # ── transport ──────────────────────────────────────────────────────────────
     def _headers(self, has_body: bool) -> Dict[str, str]:
@@ -80,7 +80,7 @@ class Foldbase:
                 payload = json.loads(text) if text else {}
             except json.JSONDecodeError:
                 payload = {}
-            raise FoldbaseError(
+            raise FoldBaseError(
                 e.code, payload.get("error", "error"), payload.get("message"), payload.get("actual")
             ) from None
 
@@ -88,7 +88,7 @@ class Foldbase:
     def append(
         self, stream_id: str, expected_version: int, events: List[JSON], stream_type: Optional[str] = None
     ) -> JSON:
-        """Append events with optimistic concurrency. Raises FoldbaseError(409) on conflict.
+        """Append events with optimistic concurrency. Raises FoldBaseError(409) on conflict.
 
         stream_type fixes the aggregate's kind on first append (drives the
         ?type= category read); a later conflicting value is a 400.
@@ -178,7 +178,7 @@ class Foldbase:
                 payload = json.loads(e.read().decode("utf-8"))
             except Exception:
                 pass
-            raise FoldbaseError(e.code, payload.get("error", "error"), payload.get("message")) from None
+            raise FoldBaseError(e.code, payload.get("error", "error"), payload.get("message")) from None
 
         buf = ""
         for chunk in resp:

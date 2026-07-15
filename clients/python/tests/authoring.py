@@ -26,7 +26,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))  # projects/foldbase
 sys.path.insert(0, os.path.abspath(os.path.join(HERE, "..")))  # clients/python
 
-from foldbase import Foldbase, define_aggregate, define_projection  # noqa: E402
+from foldbase import FoldBase, define_aggregate, define_projection  # noqa: E402
 
 SECRET = "py-authoring-secret-32-chars-minimum!"
 
@@ -139,7 +139,7 @@ def main() -> int:
     proc, base = boot(port)
     try:
         svc = sign_jwt({"sub": "app", "type": "service"}, SECRET)
-        fb = Foldbase(base, token=svc, tenant="acme")
+        fb = FoldBase(base, token=svc, tenant="acme")
         fb.put_projection(tasks.definition)
         fb.put_projection(stats.definition)
         fb.put_policy({"name": "tasks", "role": "*", "using": "owner = :auth_uid"})

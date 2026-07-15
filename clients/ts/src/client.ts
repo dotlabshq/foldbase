@@ -1,5 +1,5 @@
 import {
-  FoldbaseError,
+  FoldBaseError,
   type AppendResult,
   type NewEvent,
   type PolicyDef,
@@ -36,12 +36,12 @@ export interface ClientOptions {
  * implementation of openapi.yaml (TS reference or Go). Depends on zod only via
  * the authoring layer — the client core is fetch + types.
  *
- *   const es = new Foldbase({ baseUrl, token, tenant: 'acme' })
+ *   const es = new FoldBase({ baseUrl, token, tenant: 'acme' })
  *   await es.putProjection(notes.def)
  *   await es.append('n1', 0, [{ type: 'NoteAdded', streamId: 'n1', actor: 'u1', payload }])
  *   const { rows } = await es.query('notes', { where: { owner: { eq: 'u1' } } })
  */
-export class Foldbase {
+export class FoldBase {
   private readonly baseUrl: string
   private readonly fetchImpl: typeof fetch
   constructor(private readonly opts: ClientOptions) {
@@ -50,13 +50,13 @@ export class Foldbase {
   }
 
   /** Return a new client with a different forwarded end-user identity. */
-  withAuth(auth: { uid?: string; role?: string; email?: string }): Foldbase {
-    return new Foldbase({ ...this.opts, auth })
+  withAuth(auth: { uid?: string; role?: string; email?: string }): FoldBase {
+    return new FoldBase({ ...this.opts, auth })
   }
 
   /** Return a new client scoped to a different tenant (service tokens / none mode). */
-  withTenant(tenant: string): Foldbase {
-    return new Foldbase({ ...this.opts, tenant })
+  withTenant(tenant: string): FoldBase {
+    return new FoldBase({ ...this.opts, tenant })
   }
 
   private headers(json: boolean): Record<string, string> {
@@ -80,14 +80,14 @@ export class Foldbase {
     const data = text ? (JSON.parse(text) as unknown) : undefined
     if (!res.ok) {
       const e = (data ?? {}) as { error?: string; message?: string; actual?: number }
-      throw new FoldbaseError(res.status, e.error ?? 'error', e.message, e.actual)
+      throw new FoldBaseError(res.status, e.error ?? 'error', e.message, e.actual)
     }
     return data as T
   }
 
   // ── streams (data plane) ────────────────────────────────────────────────────
 
-  /** Append events with optimistic concurrency. Throws FoldbaseError(409) on conflict. */
+  /** Append events with optimistic concurrency. Throws FoldBaseError(409) on conflict. */
   append(
     streamId: string,
     expectedVersion: number,
@@ -175,7 +175,7 @@ export class Foldbase {
           if (lastId !== undefined) headers['Last-Event-ID'] = String(lastId)
           const q = qs({ type: opts.type, fromGlobalSeq: lastId === undefined ? opts.fromGlobalSeq : undefined })
           const res = await this.fetchImpl(`${this.baseUrl}/v1/subscribe${q}`, { headers, signal: ctrl.signal })
-          if (!res.ok || !res.body) throw new FoldbaseError(res.status, 'subscribe_failed')
+          if (!res.ok || !res.body) throw new FoldBaseError(res.status, 'subscribe_failed')
           const reader = res.body.getReader()
           const dec = new TextDecoder()
           let buf = ''
@@ -233,14 +233,14 @@ export interface EmitOpts {
 }
 
 /**
- * A catalog-bound wrapper over Foldbase. `emit` type-checks the payload
+ * A catalog-bound wrapper over FoldBase. `emit` type-checks the payload
  * against the event's schema and validates it client-side before appending —
  * the event types are pinned by the catalog, so a wrong type or a malformed
  * payload is a compile error, then a runtime guard.
  */
 export class TypedClient<S extends EventShapes> {
   constructor(
-    private readonly es: Foldbase,
+    private readonly es: FoldBase,
     private readonly cat: EventCatalog<S>,
   ) {}
 
@@ -270,7 +270,7 @@ export class TypedClient<S extends EventShapes> {
   }
 
   /** The underlying client, for queries / definitions / non-typed calls. */
-  get client(): Foldbase {
+  get client(): FoldBase {
     return this.es
   }
 }

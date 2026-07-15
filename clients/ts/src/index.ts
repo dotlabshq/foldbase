@@ -1,4 +1,4 @@
-export { Foldbase, TypedClient, type ClientOptions, type EmitOpts } from './client.js'
+export { FoldBase, TypedClient, type ClientOptions, type EmitOpts } from './client.js'
 // Typed authoring layer (Approach B — event schemas drive columns; proxy paths).
 export {
   defineEvents,
@@ -15,7 +15,7 @@ export { defineProjection as defineProjectionFromColumns, jsonCol } from './proj
 // Stream/event id generation — bare UUIDv7 (aggregate identity = read-model PK).
 export { newStreamId, uuidv7 } from './id.js'
 export {
-  FoldbaseError,
+  FoldBaseError,
   type NewEvent,
   type StoredEvent,
   type AppendResult,

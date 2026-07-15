@@ -9,7 +9,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
 import { bootServer, signJwt } from '../../conformance/harness.mjs'
-import { Foldbase, FoldbaseError, defineAggregate, defineProjection } from '../../clients/ts/src/index.ts'
+import { FoldBase, FoldBaseError, defineAggregate, defineProjection } from '../../clients/ts/src/index.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const SECRET = 'taskboard-web-secret-32-chars-minimum!'
@@ -43,7 +43,7 @@ const es = await bootServer({
 })
 console.log('sqlite db:', dbPath)
 const svc = signJwt({ sub: 'taskboard-web', type: 'service' }, SECRET)
-const api = new Foldbase({ baseUrl: es.base, token: svc, tenant: 'acme' })
+const api = new FoldBase({ baseUrl: es.base, token: svc, tenant: 'acme' })
 const write = api.catalog(TaskEvents) // typed, payload-validated emit
 
 console.log('inferred tasks.columns:', JSON.stringify(tasks.def.columns))
@@ -105,7 +105,7 @@ const server = http.createServer(async (req, res) => {
     }
     json(res, 404, { error: 'not_found' })
   } catch (e) {
-    if (e instanceof FoldbaseError) return json(res, e.status === 409 ? 409 : 400, { error: e.code, actual: e.actual })
+    if (e instanceof FoldBaseError) return json(res, e.status === 409 ? 409 : 400, { error: e.code, actual: e.actual })
     // Client-side payload validation (zod) rejected the emit before it was sent.
     if (e?.name === 'ZodError') return json(res, 400, { error: 'invalid_payload', message: e.issues?.[0]?.message })
     console.error(e); json(res, 500, { error: 'internal', message: String(e?.message) })

@@ -3,7 +3,7 @@
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { bootServer, signJwt } from '../../../conformance/harness.mjs'
-import { Foldbase, FoldbaseError, defineProjectionFromColumns as defineProjection, jsonCol } from '../src/index.ts'
+import { FoldBase, FoldBaseError, defineProjectionFromColumns as defineProjection, jsonCol } from '../src/index.ts'
 import { z } from 'zod'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -40,7 +40,7 @@ const notes = defineProjection('notes', z.object({
 console.log(`\n▶ TS client smoke against ${cmd} (${useGo ? 'Go' : 'TS'})\n`)
 const server = await bootServer({ cmd, dir, env: { FOLDBASE_AUTH: 'service-jwt', FOLDBASE_JWT_SECRET: SECRET } })
 try {
-  const es = new Foldbase({ baseUrl: server.base, token: svc(), tenant: 'acme' })
+  const es = new FoldBase({ baseUrl: server.base, token: svc(), tenant: 'acme' })
 
   const health = await es.health()
   check('health ok', health.ok === true && health.service === 'foldbase')
@@ -72,7 +72,7 @@ try {
   } catch (e) {
     conflict = e
   }
-  check('409 FoldbaseError with actual', conflict instanceof FoldbaseError && conflict.status === 409 && conflict.actual === 1)
+  check('409 FoldBaseError with actual', conflict instanceof FoldBaseError && conflict.status === 409 && conflict.actual === 1)
 
   // delete + rebuild
   await es.append('n1', 1, [{ type: 'NoteDeleted', streamId: 'n1', actor: 'u1', payload: {} }])

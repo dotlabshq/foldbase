@@ -91,7 +91,7 @@ export interface QueryResult<Row = Record<string, unknown>> {
 }
 
 /** Thrown on any non-2xx response. `code` is the machine-readable error string. */
-export class FoldbaseError extends Error {
+export class FoldBaseError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
@@ -100,6 +100,6 @@ export class FoldbaseError extends Error {
     readonly actual?: number,
   ) {
     super(message ?? code)
-    this.name = 'FoldbaseError'
+    this.name = 'FoldBaseError'
   }
 }

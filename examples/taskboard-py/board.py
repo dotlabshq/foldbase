@@ -24,7 +24,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))  # projects/foldbase
 sys.path.insert(0, os.path.join(ROOT, "clients", "python"))
 
-from foldbase import Foldbase, FoldbaseError  # noqa: E402
+from foldbase import FoldBase, FoldBaseError  # noqa: E402
 
 SECRET = "taskboard-demo-secret-32-chars-minimum!"
 
@@ -102,7 +102,7 @@ def main() -> int:
     proc, base = boot(port)
     try:
         svc = sign_jwt({"sub": "taskboard-api", "type": "service"}, SECRET)
-        api = Foldbase(base, token=svc, tenant="acme")
+        api = FoldBase(base, token=svc, tenant="acme")
 
         api.put_projection(TASKS)
         api.put_projection(STATS)
@@ -129,13 +129,13 @@ def main() -> int:
 
         try:
             api.append("t1", 1, [{"type": "TaskMoved", "streamId": "t1", "actor": "alice", "payload": {"status": "done"}}])
-        except FoldbaseError as e:
+        except FoldBaseError as e:
             if e.status == 409:
                 print("\n  ⚠ stale write on t1 rejected (409); stream actually at version %s — re-read & retry" % e.actual)
             else:
                 raise
 
-        other = Foldbase(base, token=svc, tenant="globex").with_auth(uid="alice")
+        other = FoldBase(base, token=svc, tenant="globex").with_auth(uid="alice")
         print("\n  globex tenant sees %d tasks (isolation)" % len(other.query("tasks")["rows"]))
 
         rb = api.rebuild()

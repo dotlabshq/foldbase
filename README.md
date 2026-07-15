@@ -133,7 +133,7 @@ owning app subscribes with a service token and relays to its users (ADR-009).
 everything: payload validation, wire rules, even the `read_` table's columns.
 
 ```ts
-import { Foldbase, defineAggregate, defineProjection } from '@baseworks/foldbase'
+import { FoldBase, defineAggregate, defineProjection } from '@baseworks/foldbase'
 import { z } from 'zod'
 
 // the aggregate: stream type + event payload schemas (single source of truth)
@@ -150,7 +150,7 @@ const tasks = defineProjection('tasks', Tasks, (on) => ({
   TaskDeleted: on.TaskDeleted.delete(),
 }))
 
-const fb = new Foldbase({ baseUrl: process.env.EVENTS_SERVICE_URL!, token, tenant: 'acme' })
+const fb = new FoldBase({ baseUrl: process.env.EVENTS_SERVICE_URL!, token, tenant: 'acme' })
 await fb.putProjection(tasks.def)                       // on boot, like a migration
 await fb.putPolicy({ name: 'tasks', role: '*', using: 'owner = :auth_uid' })
 
@@ -165,9 +165,9 @@ const { rows } = await fb.withAuth({ uid: 'alice' })
 **Python** (`foldbase`). The core client is **stdlib-only, zero dependencies**:
 
 ```python
-from foldbase import Foldbase
+from foldbase import FoldBase
 
-fb = Foldbase(base_url, token=svc_token, tenant="acme")
+fb = FoldBase(base_url, token=svc_token, tenant="acme")
 fb.append("task-1", 0, [{"type": "TaskCreated", "streamId": "task-1",
                          "actor": "alice", "payload": {"owner": "alice", "title": "Ship it"}}],
           stream_type="task")
@@ -180,7 +180,7 @@ columns are inferred, and paths are validated at author time:
 
 ```python
 from pydantic import BaseModel
-from foldbase import Foldbase, define_aggregate, define_projection
+from foldbase import FoldBase, define_aggregate, define_projection
 
 class TaskCreated(BaseModel):
     owner: str

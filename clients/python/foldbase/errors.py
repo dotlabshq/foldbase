@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Optional
 
 
-class FoldbaseError(Exception):
+class FoldBaseError(Exception):
     """Raised on any non-2xx response.
 
     Attributes:
@@ -22,4 +22,4 @@ class FoldbaseError(Exception):
         self.actual = actual
 
     def __repr__(self) -> str:
-        return f"FoldbaseError(status={self.status}, code={self.code!r}, actual={self.actual!r})"
+        return f"FoldBaseError(status={self.status}, code={self.code!r}, actual={self.actual!r})"

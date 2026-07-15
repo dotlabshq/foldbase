@@ -2,7 +2,7 @@
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { bootServer, signJwt } from '../../../conformance/harness.mjs'
-import { Foldbase } from '../src/index.ts'
+import { FoldBase } from '../src/index.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const SECRET = 'ts-subscribe-secret-32-chars-minimum!'
@@ -17,7 +17,7 @@ const server = await bootServer({
   env: { FOLDBASE_AUTH: 'service-jwt', FOLDBASE_JWT_SECRET: SECRET },
 })
 try {
-  const fb = new Foldbase({ baseUrl: server.base, token: svc, tenant: 'acme' })
+  const fb = new FoldBase({ baseUrl: server.base, token: svc, tenant: 'acme' })
   const got = []
   const sub = fb.subscribe({ type: 'task' }, (e) => got.push(e))
   await new Promise((r) => setTimeout(r, 200)) // let the subscription establish

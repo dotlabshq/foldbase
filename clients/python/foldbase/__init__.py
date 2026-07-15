@@ -5,11 +5,11 @@ The core client is dependency-free (stdlib only). The typed authoring layer
 optional extra requiring pydantic — install with `pip install foldbase[schema]`.
 Wire-compatible with openapi.yaml.
 """
-from .client import Foldbase
-from .errors import FoldbaseError
+from .client import FoldBase
+from .errors import FoldBaseError
 from .id import new_stream_id, uuidv7
 
-__all__ = ["Foldbase", "FoldbaseError", "new_stream_id", "uuidv7"]
+__all__ = ["FoldBase", "FoldBaseError", "new_stream_id", "uuidv7"]
 __version__ = "0.1.0"
 
 try:  # authoring layer — only available when pydantic is installed

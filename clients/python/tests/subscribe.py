@@ -18,7 +18,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 sys.path.insert(0, os.path.abspath(os.path.join(HERE, "..")))
 
-from foldbase import Foldbase  # noqa: E402
+from foldbase import FoldBase  # noqa: E402
 
 SECRET = "py-subscribe-secret-32-chars-minimum!"
 failed = 0
@@ -71,7 +71,7 @@ def main():
     port = free_port()
     proc, base = boot(port)
     try:
-        fb = Foldbase(base, token=sign({"sub": "app", "type": "service"}), tenant="acme")
+        fb = FoldBase(base, token=sign({"sub": "app", "type": "service"}), tenant="acme")
         got = []
 
         def listen():
