@@ -234,17 +234,35 @@ always require a service token when auth is on. Full model: [ADR-002…005](./do
 ## Develop & verify
 
 ```bash
+just gate            # the Spek gate: unit + conformance (both impls) + realtime — the oracle
 just build-go        # static binary → go/bin/foldbase
-just test-go         # Go unit tests (store, auth, query engine)
 just conformance     # the behavior lock: both impls must green all 58 checks
-just test-all        # conformance + TS & Python client smokes
+just conformance-pg  # the same 58 checks against a real PostgreSQL
+just test-all        # gate + TS & Python client query/subscribe smokes
 just authoring-py    # Python typed-authoring test (sets up a pydantic venv)
 just dev-web         # taskboard demo UI → http://localhost:4000
-just demo-ts         # scripted end-to-end demo (TS client)
 ```
 
 Layout, decisions, deep-dive: [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) ·
 [docs/adr/](./docs/adr/README.md) · executable examples in [examples/](./examples).
+
+## This project is a Spek
+
+foldbase is authored as an [Open-Spek](https://github.com/open-spek) Spek —
+durable knowledge from which any implementation can be (re)generated and
+verified. The knowledge is complete and ratified:
+
+| Spek section | File |
+|---|---|
+| **Vision** — what it is, what it refuses to be | [`MANIFESTO.md`](./MANIFESTO.md) |
+| **Design Record** — locked decisions + rejected alternatives | [`docs/DESIGN.md`](./docs/DESIGN.md) → [`docs/adr/`](./docs/adr/README.md) + [`openapi.yaml`](./openapi.yaml) |
+| **Acceptance Criteria** — machine-checkable, named gate | [`loop/ACCEPTANCE.md`](./loop/ACCEPTANCE.md) |
+| **Constraints** — toolchain | [`docs/TOOLCHAIN.md`](./docs/TOOLCHAIN.md) |
+
+The gate (`just gate`) is the verification oracle: it boots each server binary
+and asserts the contract over HTTP, so it proves *any* implementation, in any
+language, on SQLite or Postgres. `go/` and `src/` are two implementations behind
+one contract — the working proof that the Spek regenerates.
 
 ## Deploy (as a sibling in a Flect app)
 

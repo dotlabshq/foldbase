@@ -68,6 +68,10 @@ demo-py: build-go
 # Everything: conformance for both impls + both client smokes.
 test-all: conformance realtime smoke-ts smoke-py subscribe-ts subscribe-py
 
+# The Spek gate (loop/ACCEPTANCE.md): the single machine oracle that proves the
+# behavioral contract. Exit 0 ⇔ foldbase upholds openapi.yaml on both impls.
+gate: test-go conformance realtime
+
 # ── dev servers (also in ../../.claude/launch.json) ───────────────────────────
 
 # TS reference, hot-reload (tsx watch). none-mode, local file DB. → :3001
