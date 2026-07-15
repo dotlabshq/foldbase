@@ -1,5 +1,7 @@
 # foldbase
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/dotlabshq/foldbase)
+
 **The append-only log, its folded views, and the way to query them.**
 
 foldbase is a small, self-hostable data-access layer: events go into an
