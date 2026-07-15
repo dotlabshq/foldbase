@@ -5,31 +5,25 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/dotlabshq/foldbase/internal/dialect"
 )
 
 // Registry holds _projections + _policies in memory. Registry membership IS the
 // query allowlist — there is no naming-convention discovery.
 type Registry struct {
 	db          SQLDB
+	d           dialect.Dialect
 	mu          sync.RWMutex
 	projections map[string]*ProjectionDef
 	byEventType map[string][]*ProjectionDef
 	policies    map[string]*PolicyDef // key: "name role"
 }
 
-var registryDDL = []string{
-	`CREATE TABLE IF NOT EXISTS _projections (
-	   name TEXT PRIMARY KEY, def TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
-	`CREATE TABLE IF NOT EXISTS _policies (
-	   name TEXT NOT NULL, role TEXT NOT NULL, action TEXT NOT NULL DEFAULT 'select',
-	   def TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY (name, role, action))`,
-	`CREATE TABLE IF NOT EXISTS _rpc (
-	   name TEXT PRIMARY KEY, def TEXT NOT NULL, updated_at INTEGER NOT NULL)`,
-}
-
-func NewRegistry(db SQLDB) *Registry {
+func NewRegistry(db SQLDB, d dialect.Dialect) *Registry {
 	return &Registry{
 		db:          db,
+		d:           d,
 		projections: map[string]*ProjectionDef{},
 		byEventType: map[string][]*ProjectionDef{},
 		policies:    map[string]*PolicyDef{},
@@ -38,7 +32,7 @@ func NewRegistry(db SQLDB) *Registry {
 
 // Init applies the registry DDL (idempotent) and loads definitions.
 func (r *Registry) Init() error {
-	for _, ddl := range registryDDL {
+	for _, ddl := range r.d.RegistryDDL() {
 		if _, err := r.db.Exec(ddl); err != nil {
 			return err
 		}
@@ -182,52 +176,30 @@ func (r *Registry) SavePolicy(p *PolicyDef) error {
 // declared column missing from the physical table. Every read model has the
 // same spine: (tenant, id) PK + updated_at. Identifiers come from the
 // validated definition (never client input).
-func (r *Registry) ensureTable(d *ProjectionDef) error {
-	table := d.TableOf()
+func (r *Registry) ensureTable(def *ProjectionDef) error {
+	table := def.TableOf()
 	colsSQL := ""
-	for name, typ := range d.Columns {
-		colsSQL += fmt.Sprintf("%s %s, ", name, upper(typ))
+	for name, typ := range def.Columns {
+		colsSQL += fmt.Sprintf("%s %s, ", name, r.d.ColumnType(typ))
 	}
 	create := fmt.Sprintf(
 		`CREATE TABLE IF NOT EXISTS %s (
-		   tenant TEXT NOT NULL, id TEXT NOT NULL, %s updated_at INTEGER NOT NULL,
-		   PRIMARY KEY (tenant, id))`, table, colsSQL)
+		   tenant TEXT NOT NULL, id TEXT NOT NULL, %s updated_at %s NOT NULL,
+		   PRIMARY KEY (tenant, id))`, table, colsSQL, r.d.ColumnType("integer"))
 	if _, err := r.db.Exec(create); err != nil {
 		return err
 	}
-	existing := map[string]bool{}
-	rows, err := r.db.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, table))
+	// Additively add any declared column missing from the physical table.
+	existing, err := r.d.ExistingColumns(r.db, table)
 	if err != nil {
 		return err
 	}
-	for rows.Next() {
-		var cid int
-		var name, typ string
-		var notnull, pk int
-		var dflt any
-		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
-			rows.Close()
-			return err
-		}
-		existing[name] = true
-	}
-	rows.Close()
-	for name, typ := range d.Columns {
+	for name, typ := range def.Columns {
 		if !existing[name] {
-			if _, err := r.db.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, name, upper(typ))); err != nil {
+			if _, err := r.db.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, name, r.d.ColumnType(typ))); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
-}
-
-func upper(s string) string {
-	b := []byte(s)
-	for i := range b {
-		if b[i] >= 'a' && b[i] <= 'z' {
-			b[i] -= 32
-		}
-	}
-	return string(b)
 }

@@ -10,7 +10,15 @@
 // Each suite boots a fresh server with a specific auth env, runs an end-to-end
 // scenario, and tears it down.
 
+import { execSync } from 'node:child_process'
 import { bootServer, client, makeChecker, signJwt } from './harness.mjs'
+
+// Each suite expects a fresh database (:memory: gives one per boot). When
+// targeting a persistent DB (Postgres via FB_DB_URL), FB_DB_RESET is a shell
+// command run before each boot to wipe it — e.g. a `psql "DROP SCHEMA …"`.
+function resetDb() {
+  if (process.env.FB_DB_RESET) execSync(process.env.FB_DB_RESET, { stdio: 'ignore' })
+}
 
 const SECRET = 'conformance-realm-secret-32chars-min!'
 
@@ -249,6 +257,7 @@ async function main() {
     let server
     const c = makeChecker(suite.name)
     try {
+      resetDb() // fresh DB per suite (no-op for :memory:)
       server = await bootServer({ cmd, dir, env: suite.env })
     } catch (err) {
       c.ok(`boot (${suite.name})`, false, String(err.message))

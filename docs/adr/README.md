@@ -14,6 +14,7 @@ bindings — are a separate series.)
 | [007](./007-client-sdks.md) | One client package per language (TS, Python); engines live in the service | accepted |
 | [008](./008-stream-type.md) | `stream_type`: denormalized, client-supplied, NOT NULL; log reads page (default 1000) | accepted |
 | [009](./009-realtime-sse.md) | Realtime over SSE; in-process bus, service-token gated; TS reference frozen | accepted |
+| [010](./010-postgres-dialect.md) | PostgreSQL via a thin dialect adapter (placeholder rewrite, type map, RETURNING); clients unchanged | accepted |
 
 Standing context (decided earlier, reaffirmed): **instance-per-app deployment —
 no shared central foldbase.** Each app runs its own instance as a private

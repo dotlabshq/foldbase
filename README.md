@@ -16,8 +16,9 @@ emit(event) ──▶ fold (rules as data) ──▶ read_<name> tables ──�
 ```
 
 **No shared central instance.** Every app deploys its own foldbase as a
-private sibling. One ~14 MB static Go binary, SQLite/libsql storage,
-PostgreSQL on the roadmap.
+private sibling: one ~14 MB static Go binary. Storage is SQLite/libsql
+(`file:` / `:memory:`) or **PostgreSQL** (`postgres://`) — the same 58
+conformance checks green on both; clients never see the difference (ADR-010).
 
 ## Why
 
@@ -225,7 +226,7 @@ always require a service token when auth is on. Full model: [ADR-002…005](./do
 | Var | Meaning |
 |---|---|
 | `PORT` | listen port (default 3001) |
-| `DB_URL` | `:memory:` \| `file:<path>` (Go); TS reference also resolves Flect/sqld |
+| `DB_URL` | `postgres://…` \| `:memory:` \| `file:<path>` (Go); TS reference resolves Flect/sqld |
 | `FOLDBASE_AUTH` | `none` \| `service-jwt` \| `user-jwt` |
 | `FOLDBASE_JWT_SECRET` | HS256 realm secret (secured modes) |
 | `FOLDBASE_ADMIN_TOKEN` | optional control-plane gate in `none` mode |

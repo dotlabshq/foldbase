@@ -91,7 +91,10 @@ func applyTo(db SQLDB, def *ProjectionDef, e EventLike) error {
 		updates = append(updates, fmt.Sprintf("%s = excluded.%s", c, c))
 	}
 	for _, c := range incCols {
-		updates = append(updates, fmt.Sprintf("%s = COALESCE(%s, 0) + ?", c, c))
+		// Qualify the existing value with the table: in Postgres a bare column in
+		// DO UPDATE is ambiguous between the target row and `excluded`. SQLite
+		// accepts the qualified form too.
+		updates = append(updates, fmt.Sprintf("%s = COALESCE(%s.%s, 0) + ?", c, table, c))
 	}
 	updates = append(updates, "updated_at = excluded.updated_at")
 

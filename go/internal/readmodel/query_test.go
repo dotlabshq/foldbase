@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/dotlabshq/foldbase/internal/dialect"
 )
 
 func setup(t *testing.T) (*sql.DB, *Registry) {
@@ -15,7 +17,7 @@ func setup(t *testing.T) (*sql.DB, *Registry) {
 	}
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
-	reg := NewRegistry(db)
+	reg := NewRegistry(db, dialect.Dialect{Kind: dialect.SQLite})
 	if err := reg.Init(); err != nil {
 		t.Fatal(err)
 	}

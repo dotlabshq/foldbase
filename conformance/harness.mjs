@@ -51,7 +51,9 @@ export async function bootServer({ cmd, dir, env }) {
   const [bin, ...args] = cmd.split(' ')
   const child = spawn(bin, args, {
     cwd: dir,
-    env: { ...process.env, PORT: String(port), DB_URL: ':memory:', ...env },
+    // FB_DB_URL lets the whole run target a real database (e.g. Postgres);
+    // otherwise each boot gets a fresh in-memory SQLite.
+    env: { ...process.env, PORT: String(port), DB_URL: process.env.FB_DB_URL || ':memory:', ...env },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let log = ''

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/dotlabshq/foldbase/internal/dialect"
 )
 
 func nowMillis() int64 { return time.Now().UnixMilli() }
@@ -33,28 +35,9 @@ func ValidID(s string) bool {
 	return err == nil
 }
 
-// SchemaSQL is the canonical SQLite/libSQL DDL — identical to the TS
-// SQLITE_SCHEMA_SQL. Applied idempotently on boot.
-const SchemaSQL = `CREATE TABLE IF NOT EXISTS events (
-  global_seq     INTEGER PRIMARY KEY AUTOINCREMENT,
-  id             TEXT    NOT NULL UNIQUE,
-  tenant         TEXT    NOT NULL,
-  stream_id      TEXT    NOT NULL,
-  stream_type    TEXT    NOT NULL DEFAULT '',
-  version        INTEGER NOT NULL,
-  type           TEXT    NOT NULL,
-  actor          TEXT    NOT NULL,
-  payload        TEXT    NOT NULL,
-  causation_id   TEXT,
-  correlation_id TEXT,
-  metadata       TEXT    NOT NULL,
-  recorded_at    INTEGER NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS events_tenant_stream_version_uq
-  ON events (tenant, stream_id, version);`
-
-// MigrateSQL is applied after SchemaSQL, best-effort (errors ignored): it
-// upgrades a pre-stream_type database in place. Harmless on fresh databases.
+// MigrateSQL is applied after the schema, best-effort (errors ignored): it
+// upgrades a pre-stream_type database in place. Harmless (and error-ignored) on
+// fresh databases and on both dialects — plain ALTER ADD COLUMN.
 const MigrateSQL = `ALTER TABLE events ADD COLUMN stream_type TEXT NOT NULL DEFAULT ''`
 
 // NewEvent is the caller-supplied intent to record a fact.
@@ -103,35 +86,19 @@ func (e *ConcurrencyError) Error() string {
 }
 
 // IsUniqueViolation reports whether err is a UNIQUE constraint failure — the
-// DB-level backstop behind optimistic concurrency.
+// DB-level backstop behind optimistic concurrency (dialect-aware).
 func IsUniqueViolation(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return contains(msg, "UNIQUE constraint failed") || contains(msg, "constraint failed") || contains(msg, "SQLITE_CONSTRAINT")
+	return dialect.IsUniqueViolation(err)
 }
 
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (indexOf(s, sub) >= 0)
-}
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
-}
-
-// Store wraps a *sql.DB. NowFunc/IDFunc are injectable for tests.
+// Store wraps a dialect-aware Conn. NowFunc/IDFunc are injectable for tests.
 type Store struct {
-	db      *sql.DB
+	db      *dialect.Conn
 	NowFunc func() int64
 	IDFunc  func() string
 }
 
-func New(db *sql.DB) *Store {
+func New(db *dialect.Conn) *Store {
 	return &Store{db: db}
 }
 
@@ -231,19 +198,27 @@ func (s *Store) Append(tenant, streamID, streamType string, expectedVersion int6
 		pj, _ := json.Marshal(payload)
 		mj, _ := json.Marshal(metadata)
 
-		res, err := tx.Exec(
-			`INSERT INTO events
+		const insertSQL = `INSERT INTO events
 			 (id, tenant, stream_id, stream_type, version, type, actor, payload, causation_id, correlation_id, metadata, recorded_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			id, tenant, streamID, streamType, version, e.Type, e.Actor, string(pj),
-			nullStr(e.CausationID), nullStr(e.CorrelationID), string(mj), now,
-		)
-		if err != nil {
-			return nil, err
-		}
-		gs, err := res.LastInsertId()
-		if err != nil {
-			return nil, err
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		args := []any{id, tenant, streamID, streamType, version, e.Type, e.Actor, string(pj),
+			nullStr(e.CausationID), nullStr(e.CorrelationID), string(mj), now}
+
+		// Postgres has no LastInsertId; it returns the assigned global_seq.
+		// SQLite reports it via LastInsertId(). Same row, two retrieval paths.
+		var gs int64
+		if s.db.D.Kind == dialect.Postgres {
+			if err := tx.QueryRow(insertSQL+" RETURNING global_seq", args...).Scan(&gs); err != nil {
+				return nil, err
+			}
+		} else {
+			res, err := tx.Exec(insertSQL, args...)
+			if err != nil {
+				return nil, err
+			}
+			if gs, err = res.LastInsertId(); err != nil {
+				return nil, err
+			}
 		}
 		stored = append(stored, StoredEvent{
 			Tenant: tenant, ID: id, StreamID: streamID, StreamType: streamType, Version: version, GlobalSeq: gs,

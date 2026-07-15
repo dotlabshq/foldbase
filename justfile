@@ -27,6 +27,14 @@ conformance-go: build-go
 # Both implementations must green every check.
 conformance: conformance-ts conformance-go
 
+# Conformance against a real Postgres (needs a running instance; set FB_DB_URL
+# and FB_DB_RESET). Example with the disposable docker container:
+#   just conformance-pg
+conformance-pg: build-go
+    FB_DB_URL="postgres://postgres:fb@localhost:55432/foldbase" \
+    FB_DB_RESET="docker exec fbpg psql -U postgres -d foldbase -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'" \
+    node conformance/run.mjs --cmd "./bin/foldbase" --dir ./go
+
 # Realtime (SSE) conformance — Go-first (ADR-009); targets the Go binary.
 realtime: build-go
     node conformance/realtime.mjs --cmd "./bin/foldbase" --dir ./go

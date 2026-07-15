@@ -3,9 +3,12 @@ package store
 import (
 	"database/sql"
 	"regexp"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
+
+	"github.com/dotlabshq/foldbase/internal/dialect"
 )
 
 func newTestStore(t *testing.T) *Store {
@@ -16,10 +19,13 @@ func newTestStore(t *testing.T) *Store {
 	}
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
-	if _, err := db.Exec(SchemaSQL); err != nil {
-		t.Fatal(err)
+	d := dialect.Dialect{Kind: dialect.SQLite}
+	for _, stmt := range splitSemis(d.EventsSchema()) {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
 	}
-	return New(db)
+	return New(dialect.New(db, d))
 }
 
 func ev(typ string) NewEvent {
@@ -114,4 +120,14 @@ func TestReadAllCategoryFilterAndLimit(t *testing.T) {
 	if len(other) != 0 {
 		t.Fatalf("tenant isolation broken")
 	}
+}
+
+func splitSemis(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ";") {
+		if strings.TrimSpace(p) != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
