@@ -1,0 +1,30 @@
+build:
+    pnpm build
+
+typecheck:
+    pnpm typecheck
+
+# End-to-end smoke — boots a real foldbase server (Go binary or TS dist).
+test:
+    node --import tsx test/smoke.mjs
+
+# Gate before publish. Smoke is E2E (needs a server), so publish gates on
+# typecheck + build; run `just test` separately against a booted server.
+verify: typecheck build
+
+patch: verify
+    npm version patch --no-git-tag-version
+
+minor: verify
+    npm version minor --no-git-tag-version
+
+publish: verify
+    npm publish --access public
+
+release-patch:
+    just patch
+    just publish
+
+release-minor:
+    just minor
+    just publish
