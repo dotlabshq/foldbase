@@ -32,9 +32,10 @@ conformance checks green on both; clients never see the difference (ADR-010).
 - **Deny-by-default rows.** Select policies (`owner = :auth_uid`) gate every
   query; tenant isolation is structural (AND-ed into every SQL statement),
   never dependent on policy text. No bypass for anyone — not even services.
-- **Contract-first, polyglot.** Behavior is defined by [openapi.yaml](./openapi.yaml)
+- **Contract-first.** Behavior is defined by [openapi.yaml](./openapi.yaml)
   and locked by a language-agnostic [conformance suite](./conformance/run.mjs)
-  (58 checks) that both implementations (Go, TS reference) green identically.
+  (58 checks) that the Go binary greens. A language-agnostic suite means a future
+  second implementation can re-adopt it (ADR-011 retired the original TS reference).
 
 ## Try it in 5 minutes — with nothing but curl
 
@@ -228,7 +229,7 @@ always require a service token when auth is on. Full model: [ADR-002…005](./do
 | Var | Meaning |
 |---|---|
 | `PORT` | listen port (default 3001) |
-| `DB_URL` | `postgres://…` \| `:memory:` \| `file:<path>` (Go); TS reference resolves Flect/sqld |
+| `DB_URL` | `postgres://…` \| `:memory:` \| `file:<path>` (default `:memory:`) |
 | `FOLDBASE_AUTH` | `none` \| `service-jwt` \| `user-jwt` |
 | `FOLDBASE_JWT_SECRET` | HS256 realm secret (secured modes) |
 | `FOLDBASE_ADMIN_TOKEN` | optional control-plane gate in `none` mode |
@@ -236,9 +237,9 @@ always require a service token when auth is on. Full model: [ADR-002…005](./do
 ## Develop & verify
 
 ```bash
-just gate            # the Spek gate: unit + conformance (both impls) + realtime — the oracle
+just gate            # the Spek gate: Go unit + conformance + realtime — the oracle
 just build-go        # static binary → go/bin/foldbase
-just conformance     # the behavior lock: both impls must green all 58 checks
+just conformance     # the behavior lock: Go must green all 58 checks
 just conformance-pg  # the same 58 checks against a real PostgreSQL
 just test-all        # gate + TS & Python client query/subscribe smokes
 just authoring-py    # Python typed-authoring test (sets up a pydantic venv)
@@ -261,10 +262,11 @@ verified. The knowledge is complete and ratified:
 | **Acceptance Criteria** — machine-checkable, named gate | [`loop/ACCEPTANCE.md`](./loop/ACCEPTANCE.md) |
 | **Constraints** — toolchain | [`docs/TOOLCHAIN.md`](./docs/TOOLCHAIN.md) |
 
-The gate (`just gate`) is the verification oracle: it boots each server binary
-and asserts the contract over HTTP, so it proves *any* implementation, in any
-language, on SQLite or Postgres. `go/` and `src/` are two implementations behind
-one contract — the working proof that the Spek regenerates.
+The gate (`just gate`) is the verification oracle: it boots the server binary
+and asserts the contract over HTTP, so it proves the implementation, in any
+language, on SQLite or Postgres. The suite is language-agnostic by construction —
+`go/` is the current implementation; a second one could re-adopt the same
+contract (ADR-011).
 
 ## Deploy (as a sibling in a Flect app)
 

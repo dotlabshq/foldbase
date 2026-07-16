@@ -2,11 +2,7 @@ image := "ghcr.io/dotlabshq/foldbase"
 
 # ── build ─────────────────────────────────────────────────────────────────────
 
-# TS reference implementation (the contract's reference, ADR-001).
-build-ts:
-    pnpm build
-
-# Go implementation (single static binary, ADR-006). GOWORK=off: standalone module.
+# Go implementation — the sole backend (ADR-006, ADR-011). GOWORK=off: standalone module.
 build-go:
     cd go && GOWORK=off go build -o bin/foldbase .
 
@@ -16,16 +12,13 @@ test-go:
 
 # ── conformance (the behavior lock, ADR-001) ─────────────────────────────────────────────────────────────────
 
-# Run the language-agnostic HTTP conformance suite against the TS reference.
-conformance-ts: build-ts
-    node conformance/run.mjs --cmd "node dist/index.js" --dir .
-
-# Run the same suite against the Go binary — must match the TS reference exactly.
+# Run the language-agnostic HTTP conformance suite against the Go binary — the
+# machine oracle that locks openapi.yaml (ADR-001).
 conformance-go: build-go
     node conformance/run.mjs --cmd "./bin/foldbase" --dir ./go
 
-# Both implementations must green every check.
-conformance: conformance-ts conformance-go
+# Go is the sole implementation (ADR-011); conformance == conformance-go.
+conformance: conformance-go
 
 # Conformance against a real Postgres (needs a running instance; set FB_DB_URL
 # and FB_DB_RESET). Example with the disposable docker container:
@@ -65,18 +58,14 @@ demo-ts: build-go
 demo-py: build-go
     cd examples/taskboard-py && python3 board.py
 
-# Everything: conformance for both impls + both client smokes.
+# Everything: conformance + realtime + both client smokes.
 test-all: conformance realtime smoke-ts smoke-py subscribe-ts subscribe-py
 
 # The Spek gate (loop/ACCEPTANCE.md): the single machine oracle that proves the
-# behavioral contract. Exit 0 ⇔ foldbase upholds openapi.yaml on both impls.
+# behavioral contract. Exit 0 ⇔ the Go binary upholds openapi.yaml.
 gate: test-go conformance realtime
 
 # ── dev servers (also in ../../.claude/launch.json) ───────────────────────────
-
-# TS reference, hot-reload (tsx watch). none-mode, local file DB. → :3001
-dev-ts:
-    DB_URL=file:.dev.db FOLDBASE_AUTH=none pnpm dev
 
 # Go binary, none-mode, local file DB (persists across restarts). → :3001
 dev-go: build-go
@@ -86,10 +75,12 @@ dev-go: build-go
 dev-web: build-go
     cd examples/taskboard-web && node --import tsx server.mjs
 
-# ── docker (self-contained; context is this directory) ────────────────────────
+# ── docker (Go static binary → ghcr; context is the go/ dir) ──────────────────
+# The shipped image is the Go implementation (ADR-006/ADR-011, distroless static
+# binary). Build for multi-arch with buildx when publishing to ghcr.
 
 build-docker tag="latest":
-    docker build --platform linux/amd64 -t {{image}}:{{tag}} .
+    docker build --platform linux/amd64 -f go/Dockerfile -t {{image}}:{{tag}} go
 
 push-docker tag="latest":
     docker push {{image}}:{{tag}}

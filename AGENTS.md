@@ -10,10 +10,11 @@ quickstart) · [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) (layout) ·
 The append-only event log + its folded read models + one generic, policy-gated
 query endpoint. **Contract-first**: [openapi.yaml](./openapi.yaml) is the
 source of truth; the [conformance suite](./conformance/run.mjs) (58 HTTP
-checks) locks behavior. Two implementations green it identically:
+checks) locks behavior against the shipped implementation:
 
-- **Go** (`go/`) — the production binary. `database/sql`, no ORM (ADR-006).
-- **TS reference** (`src/`) — Hono; retires once the Go image ships (ADR-001).
+- **Go** (`go/`) — the sole backend and released binary. `database/sql`, no ORM
+  (ADR-006). The TS reference was retired once parity held (ADR-011); only the
+  TS **client** (`clients/ts`, `@baseworks/foldbase`) remains.
 
 Deployment model: **no shared central instance** — each app deploys its own
 foldbase as a private sibling. The word "eventstore" is retired; the project,
@@ -61,11 +62,11 @@ schemas — prefer it over hand-written wire defs.
 
 ```bash
 just build-go && just test-go     # binary + Go unit tests
-just conformance                  # BOTH impls must green all checks
+just conformance                  # Go must green all 58 checks
 just test-all                     # + TS & Python client smokes
 just dev-web                      # taskboard UI on :4000 (own sibling, file db)
-just release-docker <tag>         # ghcr.io/dotlabshq/foldbase:<tag>
+just release-docker <tag>         # ghcr.io/dotlabshq/foldbase:<tag> (Go image)
 ```
 
 Any behavior change ⇒ update `openapi.yaml` + add a conformance check + green
-both implementations. Decisions of record go to `docs/adr/`.
+the Go implementation. Decisions of record go to `docs/adr/`.
