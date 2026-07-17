@@ -15,6 +15,8 @@ bindings — are a separate series.)
 | [008](./008-stream-type.md) | `stream_type`: denormalized, client-supplied, NOT NULL; log reads page (default 1000) | accepted |
 | [009](./009-realtime-sse.md) | Realtime over SSE; in-process bus, service-token gated; TS reference frozen | accepted |
 | [010](./010-postgres-dialect.md) | PostgreSQL via a thin dialect adapter (placeholder rewrite, type map, RETURNING); clients unchanged | accepted |
+| [011](./011-retire-ts-reference.md) | Retire the TS reference; Go is the sole backend | accepted |
+| [012](./012-libsql-turso.md) | Turso / libsql (sqld) support as a remote SQLite dialect (pure-Go, CGO-free) | accepted |
 
 Standing context (decided earlier, reaffirmed): **instance-per-app deployment —
 no shared central foldbase.** Each app runs its own instance as a private

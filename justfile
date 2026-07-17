@@ -28,6 +28,13 @@ conformance-pg: build-go
     FB_DB_RESET="docker exec fbpg psql -U postgres -d foldbase -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'" \
     node conformance/run.mjs --cmd "./bin/foldbase" --dir ./go
 
+# Conformance against a real Turso/sqld (needs a running libsql-server; a fresh
+# DB per suite via a drop-all-tables reset). Example with a local sqld on :8090:
+conformance-libsql: build-go
+    FB_DB_URL="http://localhost:8090" DB_URL="http://localhost:8090" \
+    FB_DB_RESET="$FBRESET" \
+    node conformance/run.mjs --cmd "./bin/foldbase" --dir ./go
+
 # Realtime (SSE) conformance — Go-first (ADR-009); targets the Go binary.
 realtime: build-go
     node conformance/realtime.mjs --cmd "./bin/foldbase" --dir ./go

@@ -13,7 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	_ "github.com/jackc/pgx/v5/stdlib" // "pgx" driver for database/sql
+	_ "github.com/jackc/pgx/v5/stdlib"                  // "pgx" driver for database/sql
+	_ "github.com/tursodatabase/libsql-client-go/libsql" // "libsql" driver (Turso / sqld, pure-Go, no CGO)
 	_ "modernc.org/sqlite"
 
 	"github.com/dotlabshq/foldbase/internal/auth"
@@ -76,8 +77,12 @@ func main() {
 
 // openDB resolves DB_URL to a dialect-aware Conn:
 //
-//	postgres:// | postgresql://   → PostgreSQL (pgx)
-//	:memory: | file:<path>        → SQLite / libsql (modernc, CGO-free)
+//	postgres:// | postgresql://                 → PostgreSQL (pgx)
+//	libsql:// | ws(s):// | http(s)://            → Turso / sqld remote (libsql, Hrana; pure-Go)
+//	:memory: | file:<path>                       → embedded SQLite (modernc, CGO-free)
+//
+// libsql speaks the SQLite dialect end-to-end (same SQL, LastInsertId, PRAGMA),
+// so a remote sqld is just the SQLite dialect over the network.
 func openDB() (*dialect.Conn, string, error) {
 	url := os.Getenv("DB_URL")
 	if url == "" {
@@ -94,6 +99,16 @@ func openDB() (*dialect.Conn, string, error) {
 			return nil, "", fmt.Errorf("postgres: %w", err)
 		}
 		return dialect.New(db, dialect.Dialect{Kind: dialect.Postgres}), redact(url), nil
+
+	case isLibsqlURL(url):
+		db, err := sql.Open("libsql", url)
+		if err != nil {
+			return nil, "", err
+		}
+		if err := db.Ping(); err != nil {
+			return nil, "", fmt.Errorf("libsql: %w", err)
+		}
+		return dialect.New(db, dialect.Dialect{Kind: dialect.SQLite}), redact(url), nil
 
 	case url == ":memory:":
 		db, err := sql.Open("sqlite", ":memory:")
@@ -123,8 +138,29 @@ func openDB() (*dialect.Conn, string, error) {
 	}
 }
 
-// redact hides the password in a postgres URL for logging.
+// isLibsqlURL reports whether DB_URL names a Turso/sqld remote. These schemes
+// are unambiguous for a database url (postgres uses postgres://, embedded
+// SQLite uses file:/:memory:), so an http:// DB_URL can only mean a sqld HTTP
+// endpoint.
+func isLibsqlURL(u string) bool {
+	for _, p := range []string{"libsql://", "wss://", "ws://", "https://", "http://"} {
+		if strings.HasPrefix(u, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// redact hides the password / auth token in a database URL for logging.
 func redact(url string) string {
+	if i := strings.Index(url, "authToken="); i >= 0 {
+		end := strings.IndexAny(url[i:], "&")
+		if end < 0 {
+			url = url[:i] + "authToken=***"
+		} else {
+			url = url[:i] + "authToken=***" + url[i+end:]
+		}
+	}
 	if at := strings.LastIndex(url, "@"); at > 0 {
 		if slash := strings.Index(url, "://"); slash > 0 {
 			return url[:slash+3] + "***@" + url[at+1:]

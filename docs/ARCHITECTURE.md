@@ -39,7 +39,7 @@ polyglot.
 | Var | Meaning |
 |---|---|
 | `PORT` | listen port (default 3001) |
-| `DB_URL` | `postgres://…` (Go, pgx) · `:memory:` / `file:…` (SQLite/libsql) · TS also resolves Flect/sqld |
+| `DB_URL` | `postgres://…` (pgx) · `libsql://…` / `http(s)://` / `ws(s)://` (Turso/sqld) · `:memory:` / `file:…` (embedded SQLite) |
 | `FOLDBASE_AUTH` | `none` \| `service-jwt` \| `user-jwt` (ADR-002) |
 | `FOLDBASE_JWT_SECRET` | HS256 realm secret (required in secured modes) |
 | `FOLDBASE_ADMIN_TOKEN` | optional control-plane gate in `none` mode (ADR-003) |

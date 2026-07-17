@@ -32,7 +32,7 @@ Postgres and `FB_DB_URL` / `FB_DB_RESET`.
 
 ## Environment contract
 
-`PORT` · `DB_URL` (`postgres://` \| `:memory:` \| `file:`) · `FOLDBASE_AUTH`
+`PORT` · `DB_URL` (`postgres://` \| `libsql://`/`http://` \| `:memory:` \| `file:`) · `FOLDBASE_AUTH`
 (`none`\|`service-jwt`\|`user-jwt`) · `FOLDBASE_JWT_SECRET` ·
 `FOLDBASE_ADMIN_TOKEN`. Every implementation honors these identically — it is
 part of the contract the gate enforces.
