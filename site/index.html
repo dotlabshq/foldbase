@@ -1,0 +1,793 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>foldbase — emit events, your tables build themselves</title>
+<meta name="description" content="foldbase is a self-hostable, log-first data layer: emit immutable events and get queryable tables, row policies, and realtime — without writing schemas, migrations, or endpoints. One static binary.">
+<meta property="og:title" content="foldbase — the log-first data layer">
+<meta property="og:description" content="Emit events. Your tables build themselves — schema, queries, policies, and realtime included. One static Go binary.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230f1115'/%3E%3Cpath d='M8 9h16M8 15h16M8 21h9' stroke='%236ea8fe' stroke-width='3' stroke-linecap='round'/%3E%3Ccircle cx='23' cy='21' r='3' fill='%2346c58e'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#0f1115; --panel:#161a21; --card:#1a1f28; --sunk:#0b0d11;
+    --line:#262c37; --line-strong:#333b49;
+    --fg:#e8ebf1; --muted:#8f98ab; --faint:#646e82;
+    --acc:#6ea8fe;   /* flow / actions   */
+    --log:#46c58e;   /* the log / truth  */
+    --warn:#d9a94a;  /* conflicts        */
+    --mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.65 var(--sans);-webkit-font-smoothing:antialiased}
+  a{color:var(--acc);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code,pre,kbd{font-family:var(--mono)}
+  .wrap{max-width:1060px;margin:0 auto;padding:0 24px}
+  .prose{max-width:72ch}
+
+  /* ── top bar ─────────────────────────────────────────── */
+  header.top{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+  .top-inner{display:flex;align-items:center;gap:20px;padding:13px 24px;max-width:1060px;margin:0 auto}
+  .logo{display:flex;align-items:center;gap:9px;font-weight:700;letter-spacing:-.01em;color:var(--fg);font-size:17px}
+  .logo svg{display:block}
+  .top nav{display:flex;gap:18px;margin-left:auto;font-size:14px}
+  .top nav a{color:var(--muted)} .top nav a:hover{color:var(--fg);text-decoration:none}
+  .gh{border:1px solid var(--line-strong);border-radius:8px;padding:6px 13px;color:var(--fg)!important;font-size:13.5px}
+  .gh:hover{border-color:var(--acc)}
+  @media(max-width:700px){.top nav a:not(.gh){display:none}}
+
+  /* ── hero ─────────────────────────────────────────────── */
+  .hero{padding:84px 0 64px;border-bottom:1px solid var(--line)}
+  .eyebrow{font-family:var(--mono);font-size:12.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--log);margin:0 0 20px;display:flex;align-items:center;gap:10px}
+  .eyebrow::before{content:"";width:26px;height:1px;background:var(--log)}
+  h1{font-size:clamp(34px,6vw,58px);line-height:1.04;letter-spacing:-.032em;margin:0 0 22px;font-weight:760;text-wrap:balance}
+  h1 .dim{color:var(--muted);font-weight:640}
+  .lede{font-size:19.5px;color:var(--muted);max-width:62ch;margin:0 0 30px;text-wrap:pretty}
+  .lede b{color:var(--fg);font-weight:600}
+  .cta{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:44px}
+  .btn{display:inline-block;border-radius:10px;padding:11px 20px;font-size:15px;font-weight:600;border:1px solid var(--line-strong)}
+  .btn.primary{background:var(--acc);color:#0b1220;border-color:var(--acc)}
+  .btn.primary:hover{filter:brightness(1.08);text-decoration:none}
+  .btn.ghost{color:var(--fg)} .btn.ghost:hover{border-color:var(--acc);text-decoration:none}
+
+  /* pipeline diagram */
+  .pipe{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px;overflow-x:auto}
+  .pipe-flow{display:flex;align-items:stretch;gap:0;min-width:660px}
+  .stage{flex:1;display:flex;flex-direction:column;gap:8px;padding:0 7px}
+  .stage .lbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+  .stage .box{border:1px solid var(--line-strong);border-radius:11px;padding:13px 14px;background:var(--sunk);font-size:13.5px;font-weight:560;flex:1}
+  .stage .box small{display:block;font-weight:400;color:var(--muted);font-size:12px;margin-top:4px;line-height:1.45}
+  .stage.truth .box{border-color:color-mix(in srgb,var(--log) 50%,var(--line-strong));box-shadow:inset 3px 0 0 var(--log)}
+  .stage.read .box{border-color:color-mix(in srgb,var(--acc) 50%,var(--line-strong));box-shadow:inset 3px 0 0 var(--acc)}
+  .arr{align-self:center;color:var(--faint);font-family:var(--mono);padding:0 3px;font-size:15px}
+  .pipe-note{margin-top:16px;padding-top:14px;border-top:1px dashed var(--line-strong);font-size:13.5px;color:var(--muted)}
+  .pipe-note b{color:var(--log)}
+
+  /* ── sections ────────────────────────────────────────── */
+  section{padding:72px 0;border-bottom:1px solid var(--line)}
+  .kicker{font-family:var(--mono);font-size:11.5px;letter-spacing:.15em;text-transform:uppercase;color:var(--faint);margin:0 0 10px}
+  h2{font-size:clamp(24px,3.5vw,33px);letter-spacing:-.024em;margin:0 0 12px;font-weight:700;text-wrap:balance}
+  .intro{color:var(--muted);margin:0 0 32px;max-width:66ch;font-size:16.5px;text-wrap:pretty}
+  .intro b{color:var(--fg)}
+  h3{font-size:16.5px;margin:0 0 10px;letter-spacing:-.01em}
+
+  /* code blocks */
+  pre{background:var(--sunk);border:1px solid var(--line);border-radius:12px;padding:17px 19px;overflow-x:auto;margin:0;font-size:13.2px;line-height:1.62;color:#d6dbe6}
+  pre .c{color:#5f6b80}      /* comment  */
+  pre .k{color:var(--acc)}   /* keyword  */
+  pre .s{color:var(--log)}   /* string   */
+  pre .n{color:#e0b970}      /* number / emphasis */
+  pre .p{color:#c792ea}      /* punctuation-ish accents */
+  pre.out{border-style:dashed;color:var(--muted)}
+  .cap{font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase;margin:0 0 8px}
+
+  .cols2{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
+  @media(max-width:860px){.cols2{grid-template-columns:1fr}}
+
+  /* fake db table */
+  table.db{border-collapse:collapse;width:100%;font-size:12.8px;font-family:var(--mono)}
+  table.db th{color:var(--faint);font-weight:600;text-align:left;padding:7px 11px;border-bottom:1px solid var(--line-strong);font-size:11px;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+  table.db td{padding:7px 11px;border-bottom:1px solid var(--line);color:#cfd6e2;white-space:nowrap}
+  table.db tr:last-child td{border-bottom:0}
+  .dbcard{background:var(--sunk);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .dbcard .dbhead{display:flex;align-items:center;gap:8px;padding:9px 13px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12px;color:var(--muted)}
+  .dbcard .dbhead .dot{width:7px;height:7px;border-radius:50%;background:var(--acc)}
+  .dbcard.log .dbhead .dot{background:var(--log)}
+  .dbwrap{overflow-x:auto}
+  .flash{animation:flash 1s ease-out}
+  @keyframes flash{0%{background:color-mix(in srgb,var(--acc) 22%,transparent)}100%{background:transparent}}
+  .born{animation:born .9s ease-out}
+  @keyframes born{0%{opacity:0;transform:translateY(6px)}100%{opacity:1;transform:none}}
+
+  /* simulator */
+  .sim{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px}
+  .sim-controls{display:flex;flex-wrap:wrap;gap:9px;margin-bottom:18px}
+  .sim button{font:600 13px var(--sans);color:var(--fg);background:var(--card);border:1px solid var(--line-strong);border-radius:9px;padding:9px 14px;cursor:pointer}
+  .sim button:hover{border-color:var(--acc)}
+  .sim button.special{border-color:color-mix(in srgb,var(--log) 55%,var(--line-strong));color:var(--log)}
+  .sim button.special:hover{border-color:var(--log)}
+  .sim button:disabled{opacity:.4;cursor:default}
+  .sim-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:16px}
+  @media(max-width:900px){.sim-grid{grid-template-columns:1fr}}
+  .sim .evlog{max-height:340px;overflow-y:auto}
+  .sim .evlog .ev{display:flex;gap:10px;padding:6px 12px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12.2px;align-items:baseline}
+  .sim .evlog .ev:last-child{border-bottom:0}
+  .sim .evlog .seq{color:var(--faint);min-width:2.4em;text-align:right}
+  .sim .evlog .typ{color:var(--log);min-width:9em}
+  .sim .evlog .pl{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sim .tables{display:flex;flex-direction:column;gap:14px}
+  .sim-note{margin-top:14px;font-size:13.5px;color:var(--muted)}
+  .sim-note b{color:var(--fg)}
+  .empty{padding:14px;color:var(--faint);font-size:13px;font-family:var(--mono)}
+
+  /* tabs */
+  .tabs{display:flex;gap:6px;margin-bottom:-1px;position:relative;z-index:1}
+  .tabs button{font:600 13px var(--mono);color:var(--muted);background:var(--sunk);border:1px solid var(--line);border-bottom:none;border-radius:10px 10px 0 0;padding:9px 18px;cursor:pointer}
+  .tabs button[aria-selected="true"]{color:var(--fg);background:var(--panel);border-color:var(--line-strong)}
+  .tabpanel{display:none;background:var(--panel);border:1px solid var(--line-strong);border-radius:0 12px 12px 12px;padding:6px}
+  .tabpanel.active{display:block}
+  .tabpanel pre{border:none;background:transparent}
+
+  /* realtime terminal */
+  .term{background:var(--sunk);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .term .bar{display:flex;gap:6px;padding:10px 14px;border-bottom:1px solid var(--line)}
+  .term .bar i{width:10px;height:10px;border-radius:50%;background:var(--line-strong);display:block}
+  .term pre{border:none;border-radius:0;min-height:230px}
+  .sse-id{color:var(--faint)} .sse-ev{color:var(--acc)} .sse-data{color:#cfd6e2} .sse-ping{color:#4a5468}
+
+  /* principles */
+  .principles{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  @media(max-width:860px){.principles{grid-template-columns:1fr}}
+  .prin{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
+  .prin .num{font-family:var(--mono);font-size:12px;color:var(--log);margin-bottom:8px}
+  .prin p{margin:6px 0 0;color:var(--muted);font-size:14px}
+
+  /* deploy cards */
+  .deploy{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:26px}
+  @media(max-width:860px){.deploy{grid-template-columns:1fr}}
+  .dep{background:var(--sunk);border:1px solid var(--line);border-radius:12px;padding:16px 17px}
+  .dep .t{font-weight:650;font-size:14.5px;margin-bottom:5px}
+  .dep code{font-size:12px;color:var(--log)}
+  .dep p{margin:7px 0 0;font-size:13px;color:var(--muted)}
+
+  /* faq */
+  details{border:1px solid var(--line);border-radius:12px;background:var(--panel);margin-bottom:11px}
+  summary{cursor:pointer;padding:15px 18px;font-weight:600;font-size:15px;list-style:none;display:flex;justify-content:space-between;align-items:center}
+  summary::-webkit-details-marker{display:none}
+  summary::after{content:"+";font-family:var(--mono);color:var(--faint);font-size:17px}
+  details[open] summary::after{content:"–"}
+  details .a{padding:0 18px 16px;color:var(--muted);font-size:14.5px;max-width:75ch}
+  details .a code{font-size:12.8px;color:var(--fg)}
+
+  footer{padding:44px 0 64px;color:var(--faint);font-size:13.5px}
+  footer .wrap{display:flex;flex-wrap:wrap;gap:8px 26px;align-items:center}
+  footer a{color:var(--muted)}
+
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  :focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:4px}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="top-inner">
+    <a class="logo" href="#" aria-label="foldbase home">
+      <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#161a21"/><path d="M8 9h16M8 15h16M8 21h9" stroke="#6ea8fe" stroke-width="3" stroke-linecap="round"/><circle cx="23" cy="21" r="3" fill="#46c58e"/></svg>
+      foldbase
+    </a>
+    <nav>
+      <a href="#idea">The idea</a>
+      <a href="#simulator">Try it</a>
+      <a href="#examples">Examples</a>
+      <a href="#deploy">Deploy</a>
+      <a href="#faq">FAQ</a>
+      <a class="gh" href="https://github.com/dotlabshq/foldbase">GitHub&nbsp;→</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ═══════════════════════ HERO ═══════════════════════ -->
+<div class="hero">
+  <div class="wrap">
+    <p class="eyebrow">The log-first data layer</p>
+    <h1>Ship features,<br><span class="dim">not schemas.</span></h1>
+    <p class="lede">You know the drill: design tables, write migrations, build endpoints, add filters, wire up live updates — then the requirements change, and you do it all again.
+    <b>foldbase inverts it.</b> Your app emits immutable events; foldbase folds them into queryable tables, enforces row-level access, and streams changes live. One static binary. Zero per-table code.</p>
+    <div class="cta">
+      <a class="btn primary" href="#quickstart">5-minute quickstart</a>
+      <a class="btn ghost" href="https://github.com/dotlabshq/foldbase">Source on GitHub</a>
+    </div>
+
+    <div class="pipe">
+      <div class="pipe-flow">
+        <div class="stage truth">
+          <span class="lbl">01 · emit</span>
+          <div class="box">append(event)<small>the <code>events</code> log — append-only, the source of truth</small></div>
+        </div>
+        <div class="arr">──▶</div>
+        <div class="stage">
+          <span class="lbl">02 · fold</span>
+          <div class="box">declarative rules<small>data, not code — <code>upsert</code> / <code>inc</code> / <code>delete</code></small></div>
+        </div>
+        <div class="arr">──▶</div>
+        <div class="stage">
+          <span class="lbl">03 · materialize</span>
+          <div class="box">read_&lt;name&gt; tables<small>created &amp; evolved automatically — disposable, rebuildable</small></div>
+        </div>
+        <div class="arr">──▶</div>
+        <div class="stage read">
+          <span class="lbl">04 · read</span>
+          <div class="box">query + subscribe<small>one policy-gated endpoint · realtime over SSE</small></div>
+        </div>
+      </div>
+      <div class="pipe-note"><b>◆ the iron rule</b> — the log commits first, always. A fold failure can only leave a view stale (repaired by replay); it can never invent or lose a fact.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════ THE IDEA ═══════════════════════ -->
+<section id="idea">
+  <div class="wrap">
+    <p class="kicker">The idea in 60 seconds</p>
+    <h2>Store what happened. Derive what is.</h2>
+    <p class="intro">A conventional database stores the <b>present</b> — one row per task, overwritten on every change. History is gone the moment you <code>UPDATE</code>.
+    foldbase stores the <b>past</b>: every change is an immutable event appended to a log. The "present" — your tables — is just a <b>fold</b> over that history. And anything derived can be re-derived, which is where all the magic below comes from.</p>
+    <div class="cols2">
+      <div>
+        <p class="cap">what your app writes — facts</p>
+<pre>{ <span class="s">"type"</span>: <span class="s">"TaskCreated"</span>, <span class="s">"payload"</span>: { <span class="s">"owner"</span>: <span class="s">"alice"</span>, <span class="s">"title"</span>: <span class="s">"Ship it"</span> } }
+{ <span class="s">"type"</span>: <span class="s">"TaskMoved"</span>,   <span class="s">"payload"</span>: { <span class="s">"status"</span>: <span class="s">"doing"</span> } }
+{ <span class="s">"type"</span>: <span class="s">"TaskMoved"</span>,   <span class="s">"payload"</span>: { <span class="s">"status"</span>: <span class="s">"done"</span> } }</pre>
+      </div>
+      <div>
+        <p class="cap">what your app reads — the fold of those facts</p>
+        <div class="dbcard">
+          <div class="dbhead"><span class="dot"></span>read_tasks</div>
+          <div class="dbwrap"><table class="db">
+            <thead><tr><th>id</th><th>owner</th><th>title</th><th>status</th></tr></thead>
+            <tbody><tr><td>0197f2…</td><td>alice</td><td>Ship it</td><td>done</td></tr></tbody>
+          </table></div>
+        </div>
+        <p style="font-size:13px;color:var(--muted);margin:10px 2px 0">Three events in, one row out — with the full audit trail kept forever, for free.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ SCENE 1 ═══════════════════════ -->
+<section id="scene1">
+  <div class="wrap">
+    <p class="kicker">No CREATE TABLE</p>
+    <h2>Your tables build themselves</h2>
+    <p class="intro">You never write DDL, migrations, or per-table endpoints. You declare your <b>events</b> once — typed, in your own language — and describe how they fold. foldbase infers the columns <b>from the event schema</b>, creates the table, and evolves it when you add fields. That's the whole workflow.</p>
+    <div class="cols2">
+      <div>
+        <p class="cap">you write this (TypeScript client)</p>
+<pre><span class="k">import</span> { FoldBase, defineAggregate, defineProjection } <span class="k">from</span> <span class="s">'@baseworks/foldbase'</span>
+<span class="k">import</span> { z } <span class="k">from</span> <span class="s">'zod'</span>
+
+<span class="c">// 1 · the events — your single source of truth</span>
+<span class="k">const</span> Tasks = defineAggregate(<span class="s">'task'</span>, {
+  TaskCreated: z.object({ owner: z.string(), title: z.string() }),
+  TaskMoved:   z.object({ status: z.enum([<span class="s">'todo'</span>,<span class="s">'doing'</span>,<span class="s">'done'</span>]) }),
+  TaskDeleted: z.object({}),
+})
+
+<span class="c">// 2 · how they fold — columns are INFERRED from field types</span>
+<span class="k">const</span> tasks = defineProjection(<span class="s">'tasks'</span>, Tasks, (on) =&gt; ({
+  TaskCreated: on.TaskCreated.upsert(e =&gt; ({ owner: e.owner, title: e.title, status: <span class="s">'todo'</span> })),
+  TaskMoved:   on.TaskMoved.upsert(e =&gt; ({ status: e.status })),
+  TaskDeleted: on.TaskDeleted.delete(),
+}))
+
+<span class="c">// 3 · register on boot — idempotent, like a migration you never wrote</span>
+<span class="k">await</span> fb.putProjection(tasks.def)</pre>
+      </div>
+      <div>
+        <p class="cap">foldbase does this — automatically</p>
+<pre class="out"><span class="c">-- created &amp; evolved for you; never touched by hand</span>
+CREATE TABLE read_tasks (
+  tenant     TEXT NOT NULL,
+  id         TEXT NOT NULL,   <span class="c">-- the stream id (uuidv7)</span>
+  owner      TEXT,            <span class="c">-- ← z.string()</span>
+  title      TEXT,            <span class="c">-- ← z.string()</span>
+  status     TEXT,            <span class="c">-- ← z.enum(…)</span>
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (tenant, id)
+);</pre>
+        <p style="font-size:13.5px;color:var(--muted);margin:12px 2px 0">Rename a field in your event schema and the mapping breaks <em>at compile time</em> — the schema is the one source of truth for validation, wire rules, <b>and</b> columns. Same authoring layer in Python, built on pydantic.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ SCENE 2 ═══════════════════════ -->
+<section id="scene2">
+  <div class="wrap">
+    <p class="kicker">The part a mutable store can't do</p>
+    <h2>New tables are born knowing<br>everything that ever happened</h2>
+    <p class="intro">Six months in, you need a stats dashboard you never planned for. In a state-only database that data simply <b>doesn't exist</b> — you start counting from today. In foldbase you add a projection, replay the log, and the new table appears <b>fully populated from day one</b>:</p>
+    <div class="cols2">
+      <div>
+        <p class="cap">month 6 — add a projection you never planned</p>
+<pre><span class="k">const</span> stats = defineProjection(<span class="s">'board_stats'</span>, Tasks, (on) =&gt; ({
+  TaskCreated: on.TaskCreated.inc({ created: <span class="n">1</span> }),
+}))
+
+<span class="k">await</span> fb.putProjection(stats.def)
+<span class="c">// → { ok: true, name: 'board_stats', rebuiltFrom: 8214 }</span>
+<span class="c">//                       every event ever, replayed ⤴</span></pre>
+      </div>
+      <div>
+        <p class="cap">and it's already full</p>
+        <div class="dbcard">
+          <div class="dbhead"><span class="dot"></span>read_board_stats — <span style="color:var(--log)">born with history</span></div>
+          <div class="dbwrap"><table class="db">
+            <thead><tr><th>id</th><th>created</th></tr></thead>
+            <tbody>
+              <tr><td>0195a1…</td><td>1</td></tr>
+              <tr><td>01962c…</td><td>1</td></tr>
+              <tr><td>0197f2…</td><td>1</td></tr>
+            </tbody>
+          </table></div>
+        </div>
+        <p style="font-size:13.5px;color:var(--muted);margin:12px 2px 0">The same mechanism makes every view <b>disposable</b>: bad fold rule? Fix it and rebuild. Corrupted table? Delete it and rebuild. The log is the truth; tables are just cache.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ SIMULATOR ═══════════════════════ -->
+<section id="simulator">
+  <div class="wrap">
+    <p class="kicker">Interactive — runs right here in your browser</p>
+    <h2>Watch the fold happen</h2>
+    <p class="intro">This is a miniature foldbase implemented in ~40 lines of JavaScript on this page — the same <code>upsert</code>/<code>inc</code>/<code>delete</code> rules the real engine runs. Emit events and watch the tables react. Then add the stats projection <b>late</b> and see it born with history.</p>
+    <div class="sim">
+      <div class="sim-controls" role="group" aria-label="Simulator controls">
+        <button id="b-create">+ Emit TaskCreated</button>
+        <button id="b-move">Emit TaskMoved</button>
+        <button id="b-delete">Emit TaskDeleted</button>
+        <button id="b-stats" class="special">★ Add board_stats projection (late)</button>
+        <button id="b-rebuild">↻ Rebuild all</button>
+        <button id="b-reset">Reset</button>
+      </div>
+      <div class="sim-grid">
+        <div class="dbcard log">
+          <div class="dbhead"><span class="dot"></span>events — append-only, the truth</div>
+          <div class="evlog" id="evlog"><div class="empty">-- no events yet, emit one --</div></div>
+        </div>
+        <div class="tables" id="tables"></div>
+      </div>
+      <p class="sim-note" id="simnote">Tip: emit a few tasks first, <b>then</b> click “★ Add board_stats” — the new table appears already counting every task you created before it existed.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ QUERY + POLICY ═══════════════════════ -->
+<section id="query">
+  <div class="wrap">
+    <p class="kicker">One endpoint, every table</p>
+    <h2>Query anything. See only what's yours.</h2>
+    <p class="intro">There are no per-table endpoints to build — one generic endpoint queries any registered view, with rich JSON filters. Access is <b>deny-by-default</b>: a row policy must grant it, and tenant isolation is welded into every SQL statement structurally — it can never be forgotten in a policy.</p>
+    <div class="cols2">
+      <div>
+        <p class="cap">register a row policy once (data, not code)</p>
+<pre>{ <span class="s">"name"</span>: <span class="s">"tasks"</span>, <span class="s">"role"</span>: <span class="s">"*"</span>, <span class="s">"using"</span>: <span class="s">"owner = :auth_uid"</span> }</pre>
+        <p class="cap" style="margin-top:18px">query as alice — sees only alice's rows</p>
+<pre><span class="k">const</span> { rows } = <span class="k">await</span> fb.withAuth({ uid: <span class="s">'alice'</span> })
+  .query(<span class="s">'tasks'</span>, {
+    where: { status: { eq: <span class="s">'doing'</span> } },
+    sort:  [<span class="s">'-updated_at'</span>],
+    limit: <span class="n">20</span>,
+  })</pre>
+      </div>
+      <div>
+        <p class="cap">no identity → no rows. no exceptions.</p>
+<pre class="out">POST /v1/query/tasks            <span class="c"># without X-Auth-UID</span>
+<span class="n">403</span> { <span class="s">"error"</span>: <span class="s">"forbidden"</span> }   <span class="c"># deny-by-default</span>
+
+POST /v1/query/_policies        <span class="c"># internal tables?</span>
+<span class="n">404</span>                             <span class="c"># structurally unreachable</span>
+
+<span class="s">"select"</span>: [<span class="s">"id; DROP TABLE …"</span>] <span class="c"># hostile input?</span>
+<span class="n">400</span>                             <span class="c"># identifiers are whitelisted;</span>
+                                <span class="c"># client text never reaches SQL</span></pre>
+        <p style="font-size:13.5px;color:var(--muted);margin:12px 2px 0">Even privileged services don't bypass policies — they get an explicit <code>role: "service"</code> policy like everyone else. One rule, zero exceptions.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ REALTIME ═══════════════════════ -->
+<section id="realtime">
+  <div class="wrap">
+    <p class="kicker">Live by default</p>
+    <h2>Every append is a broadcast</h2>
+    <p class="intro">The log already knows the moment anything changes — so realtime isn't a bolt-on, it's a subscription to the log. Plain <b>Server-Sent Events</b> over HTTP: proxy-friendly, auto-reconnecting, and <b>gap-free</b> — each event carries its position, so a dropped connection resumes exactly where it left off. No message broker to run.</p>
+    <div class="term">
+      <div class="bar"><i></i><i></i><i></i></div>
+      <pre id="sse" aria-label="Live SSE stream example">$ curl -sN "$BASE/v1/subscribe?type=task" -H "X-Tenant-ID: demo"
+</pre>
+    </div>
+    <p style="font-size:13.5px;color:var(--muted);margin:14px 2px 0">Clients get the same one-liner: <code>fb.subscribe({ type: 'task' }, e =&gt; render(e))</code> in TypeScript (auto-reconnect included), a blocking generator in Python.</p>
+  </div>
+</section>
+
+<!-- ═══════════════════════ EXAMPLES / QUICKSTART ═══════════════════════ -->
+<section id="examples">
+  <div class="wrap">
+    <p class="kicker" id="quickstart">Quickstart</p>
+    <h2>The same app, three ways</h2>
+    <p class="intro">The full loop — define, emit, query — in raw <b>curl</b> (nothing to install), <b>TypeScript</b>, and <b>Python</b>. Every snippet below is exercised by the project's conformance suite before it lands on this page.</p>
+
+    <div class="tabs" role="tablist" aria-label="Language examples">
+      <button role="tab" aria-selected="true"  aria-controls="tab-curl" id="t-curl">curl</button>
+      <button role="tab" aria-selected="false" aria-controls="tab-ts"   id="t-ts">TypeScript</button>
+      <button role="tab" aria-selected="false" aria-controls="tab-py"   id="t-py">Python</button>
+    </div>
+
+    <div class="tabpanel active" id="tab-curl" role="tabpanel" aria-labelledby="t-curl">
+<pre><span class="c"># 0 · run it (dev mode: no auth, in-memory db)</span>
+DB_URL=:memory: FOLDBASE_AUTH=none PORT=3001 ./foldbase &amp;
+BASE=http://localhost:3001
+
+<span class="c"># 1 · declare a view — data, not code; idempotent like a migration</span>
+curl -X PUT $BASE/v1/projections -H <span class="s">"X-Tenant-ID: demo"</span> -d <span class="s">'{
+  "name": "tasks",
+  "columns": { "owner": "text", "title": "text", "status": "text" },
+  "on": {
+    "TaskCreated": { "op": "upsert", "set": { "owner": "$.owner", "title": "$.title", "status": "todo" } },
+    "TaskMoved":   { "op": "upsert", "set": { "status": "$.status" } },
+    "TaskDeleted": { "op": "delete" }
+  }
+}'</span>
+curl -X PUT $BASE/v1/policies -H <span class="s">"X-Tenant-ID: demo"</span> \
+  -d <span class="s">'{ "name": "tasks", "role": "*", "using": "owner = :auth_uid" }'</span>
+
+<span class="c"># 2 · emit events (optimistic concurrency: expectedVersion starts at 0)</span>
+curl -X POST $BASE/v1/streams/task-1 -H <span class="s">"X-Tenant-ID: demo"</span> -d <span class="s">'{
+  "expectedVersion": 0, "streamType": "task",
+  "events": [{ "type": "TaskCreated", "streamId": "task-1", "actor": "alice",
+               "payload": { "owner": "alice", "title": "Try foldbase" } }]
+}'</span>
+<span class="c"># → { "events": […], "version": 1, "projected": true }</span>
+
+<span class="c"># 3 · query — the policy scopes rows to the caller</span>
+curl -X POST $BASE/v1/query/tasks \
+  -H <span class="s">"X-Tenant-ID: demo"</span> -H <span class="s">"X-Auth-UID: alice"</span> \
+  -d <span class="s">'{ "where": { "status": { "eq": "todo" } } }'</span>
+<span class="c"># → { "rows": [{ "id": "task-1", "owner": "alice", "title": "Try foldbase", "status": "todo" }] }</span></pre>
+    </div>
+
+    <div class="tabpanel" id="tab-ts" role="tabpanel" aria-labelledby="t-ts">
+<pre><span class="k">import</span> { FoldBase, defineAggregate, defineProjection } <span class="k">from</span> <span class="s">'@baseworks/foldbase'</span>
+<span class="k">import</span> { z } <span class="k">from</span> <span class="s">'zod'</span>
+
+<span class="c">// events — typed once, drive everything</span>
+<span class="k">const</span> Tasks = defineAggregate(<span class="s">'task'</span>, {
+  TaskCreated: z.object({ owner: z.string(), title: z.string().min(<span class="n">1</span>) }),
+  TaskMoved:   z.object({ status: z.enum([<span class="s">'todo'</span>, <span class="s">'doing'</span>, <span class="s">'done'</span>]) }),
+  TaskDeleted: z.object({}),
+})
+
+<span class="k">const</span> tasks = defineProjection(<span class="s">'tasks'</span>, Tasks, (on) =&gt; ({
+  TaskCreated: on.TaskCreated.upsert(e =&gt; ({ owner: e.owner, title: e.title, status: <span class="s">'todo'</span> })),
+  TaskMoved:   on.TaskMoved.upsert(e =&gt; ({ status: e.status })),
+  TaskDeleted: on.TaskDeleted.delete(),
+}))
+
+<span class="k">const</span> fb = <span class="k">new</span> FoldBase({ baseUrl, token, tenant: <span class="s">'acme'</span> })
+<span class="k">await</span> fb.putProjection(tasks.def)                  <span class="c">// on boot, idempotent</span>
+<span class="k">await</span> fb.putPolicy({ name: <span class="s">'tasks'</span>, role: <span class="s">'*'</span>, using: <span class="s">'owner = :auth_uid'</span> })
+
+<span class="c">// emit — payload is validated against the schema before it leaves the process</span>
+<span class="k">const</span> write = fb.catalog(Tasks)
+<span class="k">const</span> id = Tasks.newId()                           <span class="c">// uuidv7 = the row's PK</span>
+<span class="k">await</span> write.emit(id, <span class="n">0</span>, <span class="s">'TaskCreated'</span>, { owner: <span class="s">'alice'</span>, title: <span class="s">'Ship it'</span> }, { actor: <span class="s">'alice'</span> })
+
+<span class="c">// query + live updates</span>
+<span class="k">const</span> { rows } = <span class="k">await</span> fb.withAuth({ uid: <span class="s">'alice'</span> }).query(<span class="s">'tasks'</span>)
+<span class="k">const</span> sub = fb.subscribe({ type: <span class="s">'task'</span> }, (e) =&gt; render(e))</pre>
+    </div>
+
+    <div class="tabpanel" id="tab-py" role="tabpanel" aria-labelledby="t-py">
+<pre><span class="k">from</span> pydantic <span class="k">import</span> BaseModel
+<span class="k">from</span> foldbase <span class="k">import</span> FoldBase, define_aggregate, define_projection
+
+<span class="c"># events — pydantic models are the source of truth</span>
+<span class="k">class</span> <span class="n">TaskCreated</span>(BaseModel):
+    owner: str
+    title: str
+
+<span class="k">class</span> <span class="n">TaskMoved</span>(BaseModel):
+    status: str
+
+Tasks = define_aggregate(<span class="s">"task"</span>, TaskCreated=TaskCreated, TaskMoved=TaskMoved)
+
+<span class="c"># columns inferred from field types; e.owner compiles to "$.owner" —</span>
+<span class="c"># and a typo like e.ownerr raises immediately, at author time</span>
+tasks = define_projection(<span class="s">"tasks"</span>, Tasks, <span class="k">lambda</span> on: {
+    <span class="s">"TaskCreated"</span>: on.TaskCreated.upsert(<span class="k">lambda</span> e: {<span class="s">"owner"</span>: e.owner, <span class="s">"title"</span>: e.title, <span class="s">"status"</span>: <span class="s">"todo"</span>}),
+    <span class="s">"TaskMoved"</span>:   on.TaskMoved.upsert(<span class="k">lambda</span> e: {<span class="s">"status"</span>: e.status}),
+})
+
+fb = FoldBase(base_url, token=token, tenant=<span class="s">"acme"</span>)
+fb.put_projection(tasks.definition)
+fb.put_policy({<span class="s">"name"</span>: <span class="s">"tasks"</span>, <span class="s">"role"</span>: <span class="s">"*"</span>, <span class="s">"using"</span>: <span class="s">"owner = :auth_uid"</span>})
+
+write = fb.catalog(Tasks)                      <span class="c"># validated, typed writes</span>
+write.emit(Tasks.new_id(), <span class="n">0</span>, <span class="s">"TaskCreated"</span>, {<span class="s">"owner"</span>: <span class="s">"alice"</span>, <span class="s">"title"</span>: <span class="s">"Ship it"</span>}, actor=<span class="s">"alice"</span>)
+
+rows = fb.with_auth(uid=<span class="s">"alice"</span>).query(<span class="s">"tasks"</span>)[<span class="s">"rows"</span>]
+<span class="k">for</span> event <span class="k">in</span> fb.subscribe(type=<span class="s">"task"</span>):       <span class="c"># realtime generator</span>
+    handle(event)</pre>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ DEPLOY ═══════════════════════ -->
+<section id="deploy">
+  <div class="wrap">
+    <p class="kicker">Operations</p>
+    <h2>One binary. Your storage. Your box.</h2>
+    <p class="intro">foldbase is a single static, CGO-free Go binary (~22&nbsp;MB) designed to run as a <b>private sibling next to each app</b> — no shared central cluster, no fleet to operate. The blast radius of any credential is one app's own data. Point <code>DB_URL</code> at whichever storage fits; the HTTP surface is byte-identical on all three, proven by the same conformance suite.</p>
+<pre>$ DB_URL=file:./data/app.db FOLDBASE_AUTH=service-jwt FOLDBASE_JWT_SECRET=… ./foldbase
+[foldbase] Listening on port 3001
+[foldbase] Auth mode: service-jwt
+[foldbase] Database: file:./data/app.db (sqlite)</pre>
+    <div class="deploy">
+      <div class="dep">
+        <div class="t">Embedded SQLite</div>
+        <code>DB_URL=file:./data/app.db</code>
+        <p>Zero infrastructure. The default. Perfect for the sibling-per-app model.</p>
+      </div>
+      <div class="dep">
+        <div class="t">Turso / libsql</div>
+        <code>DB_URL=libsql://db.turso.io?authToken=…</code>
+        <p>Networked & replicated SQLite — or your own <code>sqld</code> over http/ws.</p>
+      </div>
+      <div class="dep">
+        <div class="t">PostgreSQL</div>
+        <code>DB_URL=postgres://…</code>
+        <p>True concurrent writes for heavier workloads. Same API, zero client changes.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ PRINCIPLES ═══════════════════════ -->
+<section id="principles">
+  <div class="wrap">
+    <p class="kicker">Non-negotiables</p>
+    <h2>Three rules the engine never breaks</h2>
+    <p class="intro" style="margin-bottom:26px">Everything above is a consequence of three invariants — each one machine-verified by a language-agnostic conformance suite (58 HTTP checks + 13 realtime checks) that gates every change.</p>
+    <div class="principles">
+      <div class="prin">
+        <div class="num">01</div>
+        <h3>Log first, always</h3>
+        <p>The append commits before any view updates. A fold failure leaves a view stale — repairable by replay — never a lost or invented fact.</p>
+      </div>
+      <div class="prin">
+        <div class="num">02</div>
+        <h3>Views are disposable</h3>
+        <p>Tables are derived cache. Wipe them, change them, add them years later — the log rebuilds them deterministically, every time.</p>
+      </div>
+      <div class="prin">
+        <div class="num">03</div>
+        <h3>Deny by default, no bypass</h3>
+        <p>No policy → no rows, for anyone. Tenant isolation is AND-ed into every statement structurally; client input can never reach an SQL identifier.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════ FAQ ═══════════════════════ -->
+<section id="faq" style="border-bottom:none">
+  <div class="wrap">
+    <p class="kicker">Questions you're probably asking</p>
+    <h2>FAQ</h2>
+    <div class="prose" style="max-width:78ch">
+      <details>
+        <summary>Do I need to know event sourcing?</summary>
+        <div class="a">No. If you can name what happens in your app in past tense — <code>OrderPlaced</code>, <code>TaskMoved</code>, <code>EmailVerified</code> — you already have your events. foldbase handles the rest: storage, ordering, concurrency, folding, querying. The theory is optional; the benefits aren't.</div>
+      </details>
+      <details>
+        <summary>Do I need Kafka, or any message broker?</summary>
+        <div class="a">No. foldbase runs one instance per app, which means one process and one writer — the realtime fan-out is in-process, and ordering comes from the log itself. There is nothing else to deploy, configure, or babysit.</div>
+      </details>
+      <details>
+        <summary>What happens when my schema changes?</summary>
+        <div class="a">Add fields to your event schema — new columns appear additively. Need a different shape entirely? Register a new projection and rebuild: it's computed from the full history, so it launches complete, not empty. You never write a migration and never lose data, because the source of truth (the log) never changed shape in the first place.</div>
+      </details>
+      <details>
+        <summary>How do I fix wrong data if events are immutable?</summary>
+        <div class="a">The same way accounting has for centuries: a correcting entry. Emit a new event (<code>TaskRetitled</code>, <code>OrderAmended</code>) and the fold takes care of the current state. The mistake stays in history — which is exactly what you want for auditability.</div>
+      </details>
+      <details>
+        <summary>Won't the log grow forever?</summary>
+        <div class="a">It grows append-only, which is the cheapest, most compressible growth pattern a database can have — no page splits, no rewrite churn. Events are small JSON facts; SQLite and Postgres both handle many millions comfortably, and reads never scan the log (they hit the folded tables). Since each app has its own instance, one app's history never weighs on another's.</div>
+      </details>
+      <details>
+        <summary>Can browsers talk to foldbase directly?</summary>
+        <div class="a">By design, no — foldbase is an internal sibling. Your app verifies its users and forwards their identity (<code>X-Auth-UID</code>); row policies do the scoping. This keeps the trust model simple and the credentials server-side. Direct user-token query support exists (<code>user-jwt</code> mode) for when you want it.</div>
+      </details>
+      <details>
+        <summary>What exactly is it built on?</summary>
+        <div class="a">A single Go binary — no ORM, no framework, raw parameterized SQL behind a strict identifier whitelist. Storage is embedded SQLite, networked libsql/Turso, or PostgreSQL. Behavior is pinned by an OpenAPI contract and a conformance suite that runs against real servers over HTTP — the docs on this page are backed by those tests. TypeScript and Python clients ship today; the API is plain HTTP, so any language works.</div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span><b style="color:var(--muted)">foldbase</b> — the log-first data layer</span>
+    <a href="https://github.com/dotlabshq/foldbase">GitHub</a>
+    <a href="https://github.com/dotlabshq/foldbase#try-it-in-5-minutes--with-nothing-but-curl">Quickstart</a>
+    <a href="https://github.com/dotlabshq/foldbase/tree/main/docs/adr">Design decisions (ADRs)</a>
+    <a href="https://github.com/dotlabshq/foldbase/blob/main/openapi.yaml">API contract</a>
+  </div>
+</footer>
+
+<script>
+/* ═══════════ tabs ═══════════ */
+(function(){
+  const tabs = document.querySelectorAll('.tabs [role=tab]');
+  tabs.forEach(t => t.addEventListener('click', () => {
+    tabs.forEach(x => x.setAttribute('aria-selected', String(x === t)));
+    document.querySelectorAll('.tabpanel').forEach(p =>
+      p.classList.toggle('active', p.id === t.getAttribute('aria-controls')));
+  }));
+})();
+
+/* ═══════════ the fold simulator — a miniature foldbase ═══════════ */
+(function(){
+  // ── state ──
+  let seq = 0, version = {};            // globalSeq, per-stream versions
+  const events = [];                    // the append-only log
+  const tables = { tasks: new Map() };  // read models: name -> Map(id -> row)
+
+  // ── projection definitions (the REAL wire format) ──
+  const defs = {
+    tasks: { name:'tasks', on:{
+      TaskCreated: { op:'upsert', set:{ owner:'$.owner', title:'$.title', status:'todo' } },
+      TaskMoved:   { op:'upsert', set:{ status:'$.status' } },
+      TaskDeleted: { op:'delete' },
+    }},
+  };
+  const statsDef = { name:'board_stats', on:{
+    TaskCreated: { op:'upsert', inc:{ created:1 } },
+  }};
+
+  // ── the fold engine (mirrors the real one) ──
+  function path(payload, p){ return p.slice(2).split('.').reduce((o,k)=>o?.[k], payload) ?? null; }
+  function applyTo(def, ev){
+    const rule = def.on[ev.type]; if(!rule) return;
+    const t = tables[def.name];
+    if(rule.op === 'delete'){ t.delete(ev.streamId); return; }
+    const row = t.get(ev.streamId) || { id: ev.streamId };
+    for(const [col,v] of Object.entries(rule.set || {}))
+      row[col] = (typeof v === 'string' && v.startsWith('$.')) ? path(ev.payload, v) : v;
+    for(const [col,n] of Object.entries(rule.inc || {}))
+      row[col] = (row[col] || 0) + n;
+    t.set(ev.streamId, row);
+  }
+  function fold(ev){ for(const d of Object.values(defs)) applyTo(d, ev); }
+  function rebuild(name){
+    tables[name] = new Map();
+    for(const ev of events) applyTo(defs[name], ev);   // replay the log, in order
+  }
+
+  // ── emitting ──
+  const titles = ['Ship the parser','Fix the flaky test','Write the changelog','Review the RFC','Refactor auth','Design the API','Cut the release','Update the docs'];
+  const owners = ['alice','bob'];
+  const uuid7 = () => (Date.now().toString(16).padStart(12,'0') + '-' + Math.random().toString(16).slice(2,6)).slice(0,13) + '…';
+  function append(streamId, type, payload){
+    version[streamId] = (version[streamId] || 0) + 1;
+    const ev = { globalSeq: ++seq, streamId, version: version[streamId], type, payload };
+    events.push(ev);        // 1 · the log commits first, always
+    fold(ev);               // 2 · then the views catch up
+    render(streamId);
+  }
+  function liveTasks(){ return [...tables.tasks.keys()]; }
+  function randomLive(){ const l = liveTasks(); return l.length ? l[Math.floor(Math.random()*l.length)] : null; }
+
+  // ── controls ──
+  document.getElementById('b-create').onclick = () => {
+    const id = uuid7();
+    append(id, 'TaskCreated', { owner: owners[seq % 2], title: titles[seq % titles.length] });
+  };
+  document.getElementById('b-move').onclick = () => {
+    const id = randomLive(); if(!id) return note('Nothing to move — emit a TaskCreated first.');
+    const cur = tables.tasks.get(id)?.status;
+    append(id, 'TaskMoved', { status: cur === 'todo' ? 'doing' : 'done' });
+  };
+  document.getElementById('b-delete').onclick = () => {
+    const id = randomLive(); if(!id) return note('Nothing to delete.');
+    append(id, 'TaskDeleted', {});
+  };
+  document.getElementById('b-stats').onclick = (e) => {
+    defs.board_stats = statsDef;
+    rebuild('board_stats');                  // ← born with full history
+    e.target.disabled = true;
+    render(null, 'board_stats');
+    note(`<b>board_stats</b> registered — and rebuilt from all <b>${events.length} events</b> that existed before it. It was born knowing the whole history.`);
+  };
+  document.getElementById('b-rebuild').onclick = () => {
+    Object.keys(defs).forEach(rebuild);
+    render();
+    note(`Wiped every table and replayed <b>${events.length} events</b> — same tables, deterministically. Views are disposable; the log is the truth.`);
+  };
+  document.getElementById('b-reset').onclick = () => {
+    seq = 0; version = {}; events.length = 0;
+    delete defs.board_stats;
+    tables.tasks = new Map(); delete tables.board_stats;
+    document.getElementById('b-stats').disabled = false;
+    render();
+    note('Tip: emit a few tasks first, <b>then</b> click “★ Add board_stats” — the new table appears already counting every task you created before it existed.');
+  };
+  function note(html){ document.getElementById('simnote').innerHTML = html; }
+
+  // ── rendering ──
+  const esc = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  function render(flashStream, bornTable){
+    const log = document.getElementById('evlog');
+    log.innerHTML = events.length ? events.map(e =>
+      `<div class="ev${e.streamId===flashStream && e.globalSeq===seq ? ' flash':''}">`+
+      `<span class="seq">${e.globalSeq}</span><span class="typ">${e.type}</span>`+
+      `<span class="pl">${esc(JSON.stringify(e.payload))}</span></div>`).join('')
+      : '<div class="empty">-- no events yet, emit one --</div>';
+    log.scrollTop = log.scrollHeight;
+
+    const host = document.getElementById('tables');
+    host.innerHTML = Object.keys(defs).map(name => {
+      const rows = [...tables[name].values()];
+      const cols = rows.length ? Object.keys(rows[0]) : (name==='tasks' ? ['id','owner','title','status'] : ['id','created']);
+      const body = rows.length ? rows.map(r =>
+        `<tr class="${r.id===flashStream?'flash':''}">${cols.map(c=>`<td>${esc(r[c] ?? '·')}</td>`).join('')}</tr>`).join('')
+        : `<tr><td colspan="${cols.length}" class="empty">-- empty --</td></tr>`;
+      return `<div class="dbcard${name===bornTable?' born':''}">
+        <div class="dbhead"><span class="dot"></span>read_${name}${name===bornTable?' — <span style="color:var(--log)">born with history</span>':''}</div>
+        <div class="dbwrap"><table class="db"><thead><tr>${cols.map(c=>`<th>${c}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>
+      </div>`;
+    }).join('');
+  }
+  render();
+})();
+
+/* ═══════════ ambient SSE terminal ═══════════ */
+(function(){
+  const pre = document.getElementById('sse');
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    pre.innerHTML += `<span class="sse-id">id: 41</span>\n<span class="sse-ev">event: TaskCreated</span>\n<span class="sse-data">data: {"streamId":"0197f2…","type":"TaskCreated","payload":{"owner":"alice","title":"Ship it"}}</span>\n\n<span class="sse-ping">: ping</span>\n`;
+    return;
+  }
+  const frames = [
+    ['TaskCreated', '{"owner":"alice","title":"Ship it"}'],
+    ['TaskMoved',   '{"status":"doing"}'],
+    [':ping'],
+    ['TaskCreated', '{"owner":"bob","title":"Review the RFC"}'],
+    ['TaskMoved',   '{"status":"done"}'],
+    [':ping'],
+  ];
+  let i = 0, id = 41, lines = [];
+  setInterval(() => {
+    const f = frames[i % frames.length]; i++;
+    if (f[0] === ':ping') lines.push('<span class="sse-ping">: ping</span>', '');
+    else {
+      lines.push(`<span class="sse-id">id: ${id++}</span>`,
+                 `<span class="sse-ev">event: ${f[0]}</span>`,
+                 `<span class="sse-data">data: {"streamId":"0197f2…","type":"${f[0]}","payload":${f[1]}}</span>`, '');
+    }
+    lines = lines.slice(-14);
+    pre.innerHTML = '$ curl -sN "$BASE/v1/subscribe?type=task" -H "X-Tenant-ID: demo"\n' + lines.join('\n');
+  }, 1600);
+})();
+</script>
+</body>
+</html>
