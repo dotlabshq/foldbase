@@ -1,15 +1,23 @@
 {
   "name": "@baseworks/foldbase",
-  "version": "0.1.0",
-  "description": "TypeScript client for foldbase — append, query, and typed projection authoring over HTTP. Zod only; no drizzle, no libsql.",
+  "version": "0.1.1",
+  "description": "TypeScript client for foldbase \u2014 append, query, and typed projection authoring over HTTP. Zod only; no drizzle, no libsql.",
   "type": "module",
-  "publishConfig": { "access": "public" },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
     "build": "tsup",
     "test": "node --import tsx test/smoke.mjs",
