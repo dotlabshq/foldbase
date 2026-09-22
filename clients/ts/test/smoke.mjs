@@ -61,6 +61,12 @@ try {
   const q = await asU1.query('notes')
   check('query row count', q.rows.length === 1)
 
+  // the wire itself, before fromRow's coercion: a column declared boolean comes
+  // back as a boolean. When it came back as 0, `row.pinned !== someBoolean` was
+  // true for every row, forever, and type-checked.
+  check('declared column type is boolean', notes.def.columns.pinned === 'boolean', String(notes.def.columns.pinned))
+  check('raw query row carries a real boolean', q.rows[0].pinned === true, JSON.stringify(q.rows[0].pinned))
+
   // typed parse via the authoring layer: JSON + boolean coercion round-trips
   const row = notes.fromRow(q.rows[0])
   check('fromRow typed', row.owner === 'u1' && row.pinned === true && Array.isArray(row.tags) && row.tags[0] === 'a')

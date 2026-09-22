@@ -176,7 +176,9 @@ func compileWhere(node any, cols map[string]bool) (string, []any, error) {
 				}
 				ph := strings.TrimSuffix(strings.Repeat("?, ", len(list)), ", ")
 				clauses = append(clauses, fmt.Sprintf("%s IN (%s)", col, ph))
-				args = append(args, list...)
+				for _, v := range list {
+					args = append(args, normalize(v))
+				}
 			case "eq":
 				if value == nil {
 					clauses = append(clauses, col+" IS NULL")
@@ -371,7 +373,11 @@ func ExecQuery(db SQLDB, reg *Registry, name string, request map[string]any, ctx
 		}
 		row := map[string]any{}
 		for i, c := range colNames {
-			row[c] = coerce(vals[i])
+			v := coerce(vals[i])
+			if def.Columns[c] == string(ColBoolean) {
+				v = asBool(v)
+			}
+			row[c] = v
 		}
 		out = append(out, row)
 	}
@@ -384,4 +390,29 @@ func coerce(v any) any {
 		return string(b)
 	}
 	return v
+}
+
+// asBool turns the 0/1 a ColBoolean column stores back into a JSON boolean.
+// NULL stays nil: a column no rule has set is unknown, not false. Drivers
+// differ on the Go type they hand back for an integer column (int64 on both
+// modernc/sqlite and pgx today, but a dialect is free to return bool), so
+// every numeric shape is accepted and anything unrecognised is passed through
+// rather than guessed at.
+func asBool(v any) any {
+	switch n := v.(type) {
+	case nil:
+		return nil
+	case bool:
+		return n
+	case int64:
+		return n != 0
+	case int:
+		return n != 0
+	case float64:
+		return n != 0
+	case string:
+		return n != "" && n != "0" && n != "false"
+	default:
+		return v
+	}
 }

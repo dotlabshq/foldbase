@@ -104,6 +104,34 @@ async function suiteNone(call, c) {
   const dq = await call('POST', '/v1/query/docs', { body: {}, headers: { ...T, 'X-Auth-UID': 'u1' } })
   c.eq('none: json array stored as text', dq.json?.rows?.[0]?.tags, '["x","y"]')
 
+  // boolean columns: stored as 0/1 (same as integer), handed back over the
+  // wire as JSON booleans. Absence stays null — unset is not false. Filtering
+  // accepts a boolean on every operator, `in` included.
+  await call('PUT', '/v1/projections', {
+    body: {
+      name: 'flags',
+      columns: { owner: 'text', done: 'boolean' },
+      on: {
+        FlagSet: { op: 'upsert', set: { owner: '$.owner', done: '$.done' } },
+        FlagFiled: { op: 'upsert', set: { owner: '$.owner' } },
+      },
+    },
+    headers: T,
+  })
+  await call('PUT', '/v1/policies', { body: { name: 'flags', role: '*' }, headers: T })
+  await call('POST', '/v1/streams/f1', { body: appendBody('f1', 0, 'FlagSet', { owner: 'u1', done: true }), headers: T })
+  await call('POST', '/v1/streams/f2', { body: appendBody('f2', 0, 'FlagSet', { owner: 'u1', done: false }), headers: T })
+  await call('POST', '/v1/streams/f3', { body: appendBody('f3', 0, 'FlagFiled', { owner: 'u1' }), headers: T })
+  const fq = await call('POST', '/v1/query/flags', { body: { sort: ['id'] }, headers: { ...T, 'X-Auth-UID': 'u1' } })
+  c.status('none: boolean column query', fq, 200)
+  c.eq('none: boolean true round-trips', fq.json?.rows?.[0]?.done, true)
+  c.eq('none: boolean false round-trips', fq.json?.rows?.[1]?.done, false)
+  c.eq('none: unset boolean stays null', fq.json?.rows?.[2]?.done, null)
+  const fEq = await call('POST', '/v1/query/flags', { body: { where: { done: { eq: true } } }, headers: { ...T, 'X-Auth-UID': 'u1' } })
+  c.eq('none: boolean eq filters', fEq.json?.rows?.map((r) => r.id), ['f1'])
+  const fIn = await call('POST', '/v1/query/flags', { body: { where: { done: { in: [true] } }, sort: ['id'] }, headers: { ...T, 'X-Auth-UID': 'u1' } })
+  c.eq('none: boolean in filters', fIn.json?.rows?.map((r) => r.id), ['f1'])
+
   // client-supplied event id: honored verbatim; invalid id → 400
   const cid = '01920000-0000-7000-8000-000000000abc'
   const withId = await call('POST', '/v1/streams/cid1', { body: { expectedVersion: 0, events: [{ id: cid, type: 'NoteAdded', streamId: 'cid1', actor: 't', payload: { owner: 'u1', text: 'x', createdAt: 1 } }] }, headers: T })

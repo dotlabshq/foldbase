@@ -36,7 +36,12 @@ export interface AppendResult {
   projected: boolean
 }
 
-export type ColType = 'text' | 'integer' | 'real'
+/**
+ * A read-model column's declared type. `boolean` stores exactly as `integer`
+ * (0/1) and differs only on the way back, where the server returns a JSON
+ * boolean; an unset column reads back as null, not false.
+ */
+export type ColType = 'text' | 'integer' | 'real' | 'boolean'
 
 export interface OpRule {
   op: 'upsert' | 'delete'

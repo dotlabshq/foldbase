@@ -797,8 +797,14 @@ components:
           propertyNames: { pattern: "^[a-z][a-z0-9_]*$" }
           additionalProperties:
             type: string
-            enum: [text, integer, real]
-          description: Declared columns besides the implicit tenant, id, updated_at.
+            enum: [text, integer, real, boolean]
+          description: >
+            Declared columns besides the implicit tenant, id, updated_at.
+            `boolean` stores exactly as `integer` (0/1) and differs only on the
+            way out, where the value is returned as a JSON boolean; a column no
+            rule has set reads back as null, not false. Because the storage is
+            identical, moving a column from `integer` to `boolean` needs no
+            migration and no rebuild.
         on:
           type: object
           additionalProperties: { $ref: "#/components/schemas/OpRule" }
