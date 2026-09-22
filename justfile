@@ -72,7 +72,7 @@ test-all: conformance realtime smoke-ts smoke-py subscribe-ts subscribe-py
 # behavioral contract. Exit 0 ⇔ the Go binary upholds openapi.yaml.
 gate: test-go conformance realtime
 
-# ── dev servers (also in ../../.claude/launch.json) ───────────────────────────
+# ── dev servers ───────────────────────────────────────────────────────────────
 
 # Go binary, none-mode, local file DB (persists across restarts). → :3001
 dev-go: build-go
