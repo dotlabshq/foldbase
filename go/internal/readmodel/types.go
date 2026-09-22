@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"errors"
 	"regexp"
+	"strings"
 )
 
 // SQLDB is the minimal SQL surface the engine needs — *sql.DB satisfies it,
@@ -74,7 +75,7 @@ func validColType(t string) bool {
 type OpRule struct {
 	Op  string         `json:"op"`
 	Set map[string]any `json:"set,omitempty"`
-	Inc map[string]float64 `json:"inc,omitempty"`
+	Inc map[string]any     `json:"inc,omitempty"`
 }
 
 // ProjectionDef — a row in _projections; rules as data.
@@ -121,13 +122,31 @@ func ValidateProjection(d *ProjectionDef) error {
 				return &ValidationError{"set column must be a lowercase identifier: " + c}
 			}
 		}
-		for c := range rule.Inc {
+		for c, v := range rule.Inc {
 			if !isIdentifier(c) {
 				return &ValidationError{"inc column must be a lowercase identifier: " + c}
+			}
+			if !validIncValue(v) {
+				return &ValidationError{"inc value must be a number or a $. payload path: " + c}
 			}
 		}
 	}
 	return nil
+}
+
+// validIncValue: an inc is a literal number, or a "$." path resolved against
+// the event payload — the same declarativeness set already has. Catching the
+// shape here means a malformed definition is rejected when it is registered,
+// not when an event happens to arrive months later.
+func validIncValue(v any) bool {
+	switch n := v.(type) {
+	case float64, int, int64:
+		return true
+	case string:
+		return strings.HasPrefix(n, "$.")
+	default:
+		return false
+	}
 }
 
 // PolicyDef — a row in _policies. Deny-by-default.

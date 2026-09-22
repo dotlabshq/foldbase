@@ -373,10 +373,11 @@ func (a *App) putProjection(w http.ResponseWriter, r *http.Request, res *auth.Re
 	if err != nil {
 		panic(err)
 	}
-	if err := readmodel.RebuildProjection(a.db, a.reg, def.Name, res.Tenant, toEventLikes(events)); err != nil {
+	skipped, err := readmodel.RebuildProjection(a.db, a.reg, def.Name, res.Tenant, toEventLikes(events))
+	if err != nil {
 		panic(err)
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "name": def.Name, "rebuiltFrom": len(events)})
+	writeJSON(w, 200, map[string]any{"ok": true, "name": def.Name, "rebuiltFrom": len(events), "skipped": skipped})
 }
 
 func (a *App) putPolicy(w http.ResponseWriter, r *http.Request, res *auth.Resolved) {
@@ -425,20 +426,25 @@ func (a *App) adminRebuild(w http.ResponseWriter, r *http.Request, res *auth.Res
 		panic(err)
 	}
 	els := toEventLikes(events)
+	skipped := 0
 	if body.Name != "" {
 		if a.reg.GetProjection(body.Name) == nil {
 			writeJSON(w, 404, map[string]any{"error": "unknown_projection", "name": body.Name})
 			return
 		}
-		if err := readmodel.RebuildProjection(a.db, a.reg, body.Name, res.Tenant, els); err != nil {
+		n, err := readmodel.RebuildProjection(a.db, a.reg, body.Name, res.Tenant, els)
+		if err != nil {
 			panic(err)
 		}
+		skipped = n
 	} else {
-		if err := readmodel.RebuildTenant(a.db, a.reg, res.Tenant, els); err != nil {
+		n, err := readmodel.RebuildTenant(a.db, a.reg, res.Tenant, els)
+		if err != nil {
 			panic(err)
 		}
+		skipped = n
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "rebuiltFrom": len(events)})
+	writeJSON(w, 200, map[string]any{"ok": true, "rebuiltFrom": len(events), "skipped": skipped})
 }
 
 func mapReadModelErr(w http.ResponseWriter, err error) {
