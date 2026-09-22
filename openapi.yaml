@@ -788,6 +788,20 @@ components:
         op:
           type: string
           enum: [upsert, delete]
+        key:
+          type: string
+          pattern: "^\\$\\."
+          description: >
+            The row's identity, as a "$." payload path. Omitted, the row is the
+            stream the event landed on — which is what every rule did before
+            this existed, and still does. A key lets a fold maintain a total
+            that spans streams: movements on order and shipment streams folding
+            into one row per sku. A key that does not resolve, or resolves to
+            something that is not a scalar, fails the fold (the append still
+            succeeds, with projected:false) — there is no safe default, because
+            falling back to the stream id would put two kinds of identity in
+            one table. Within one projection every rule carries a key or none
+            does; mixing them is rejected at registration.
         set:
           type: object
           propertyNames: { pattern: "^[a-z][a-z0-9_]*$" }

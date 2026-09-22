@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -110,6 +111,41 @@ func resolveInc(payload map[string]any, column string, value any) (float64, erro
 	}
 }
 
+// resolveKey resolves the row's id. Without a key rule the row is the stream's,
+// exactly as it always was.
+//
+// With one, the id comes from the payload — and unlike an inc value there is no
+// safe default when it does not resolve. Falling back to the stream id would
+// put two kinds of identity in one table, silently, and a later delete would
+// point at a row no upsert ever wrote. So every failure is a FoldError: the
+// append still succeeds with projected:false, the event stays durable, and a
+// rebuild heals the view once the definition is right.
+func resolveKey(rule OpRule, e EventLike) (string, error) {
+	if rule.Key == "" {
+		return e.StreamID, nil
+	}
+	v, found := payloadPath(e.Payload, rule.Key)
+	if !found || v == nil {
+		return "", &FoldError{fmt.Sprintf("key %s: the payload carries no value there", rule.Key)}
+	}
+	switch k := v.(type) {
+	case string:
+		if k == "" {
+			return "", &FoldError{fmt.Sprintf("key %s: an empty string is not an identity", rule.Key)}
+		}
+		return k, nil
+	// id is TEXT, so a numeric key is rendered as text — 42, not 42.000000.
+	case float64:
+		return strconv.FormatFloat(k, 'f', -1, 64), nil
+	case int:
+		return strconv.Itoa(k), nil
+	case int64:
+		return strconv.FormatInt(k, 10), nil
+	default:
+		return "", &FoldError{fmt.Sprintf("key %s: %#v is not a scalar identity", rule.Key, v)}
+	}
+}
+
 // applyTo applies one event to one projection.
 func applyTo(db SQLDB, def *ProjectionDef, e EventLike) error {
 	rule, ok := def.On[e.Type]
@@ -118,8 +154,13 @@ func applyTo(db SQLDB, def *ProjectionDef, e EventLike) error {
 	}
 	table := def.TableOf()
 
+	id, err := resolveKey(rule, e)
+	if err != nil {
+		return err
+	}
+
 	if rule.Op == "delete" {
-		_, err := db.Exec(fmt.Sprintf(`DELETE FROM %s WHERE tenant = ? AND id = ?`, table), e.Tenant, e.StreamID)
+		_, err := db.Exec(fmt.Sprintf(`DELETE FROM %s WHERE tenant = ? AND id = ?`, table), e.Tenant, id)
 		return err
 	}
 
@@ -139,7 +180,7 @@ func applyTo(db SQLDB, def *ProjectionDef, e EventLike) error {
 	insertCols := append([]string{"tenant", "id"}, append(append([]string{}, setCols...), incCols...)...)
 	insertCols = append(insertCols, "updated_at")
 
-	args := []any{e.Tenant, e.StreamID}
+	args := []any{e.Tenant, id}
 	for _, c := range setCols {
 		args = append(args, resolveSet(e.Payload, rule.Set[c]))
 	}
@@ -175,7 +216,7 @@ func applyTo(db SQLDB, def *ProjectionDef, e EventLike) error {
 	)
 	// DO UPDATE's inc placeholders bind after the INSERT args (same order as TS).
 	args = append(args, incArgs...)
-	_, err := db.Exec(sqlStr, args...)
+	_, err = db.Exec(sqlStr, args...)
 	return err
 }
 

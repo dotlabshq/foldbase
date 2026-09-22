@@ -181,6 +181,59 @@ async function suiteNone(call, c) {
   const sq4 = await call('POST', '/v1/query/stock', { body: { sort: ['id'] }, headers: { ...T, 'X-Auth-UID': 'u1' } })
   c.eq('none: rebuild still folded the good events', sq4.json?.rows?.map((r) => r.id), ['sku1', 'sku2'])
 
+  // the row key is a rule: a total that spans streams. Movements live on order
+  // and shipment streams; the row is the sku.
+  await call('PUT', '/v1/projections', {
+    body: {
+      name: 'on_hand',
+      columns: { qty: 'real', warehouse: 'text' },
+      on: {
+        StockMoved: { op: 'upsert', key: '$.sku', set: { warehouse: '$.warehouse' }, inc: { qty: '$.quantity' } },
+        SkuDiscontinued: { op: 'delete', key: '$.sku' },
+      },
+    },
+    headers: T,
+  })
+  await call('PUT', '/v1/policies', { body: { name: 'on_hand', role: '*' }, headers: T })
+  const moveOn = (stream, ver, sku, quantity) =>
+    call('POST', `/v1/streams/${stream}`, { body: appendBody(stream, ver, 'StockMoved', { sku, quantity, warehouse: 'w1' }), headers: T })
+  await moveOn('order-1', 0, 'A1', 10)
+  await moveOn('shipment-9', 0, 'A1', -3)
+  await moveOn('order-1', 1, 'B2', 5)
+  const kq = await call('POST', '/v1/query/on_hand', { body: { sort: ['id'] }, headers: { ...T, 'X-Auth-UID': 'u1' } })
+  c.eq('none: key groups rows across streams', kq.json?.rows?.map((r) => r.id), ['A1', 'B2'])
+  c.eq('none: keyed total spans streams', kq.json?.rows?.[0]?.qty, 7)
+  c.eq('none: one stream writes several keys', kq.json?.rows?.[1]?.qty, 5)
+
+  // rebuild replays payload-keyed rows identically — the repair still works
+  const kRb = await call('POST', '/admin/rebuild', { body: { name: 'on_hand' }, headers: T })
+  c.status('none: rebuild keyed projection', kRb, 200)
+  const kq2 = await call('POST', '/v1/query/on_hand', { body: { sort: ['id'] }, headers: { ...T, 'X-Auth-UID': 'u1' } })
+  c.eq('none: keyed rebuild is deterministic', kq2.json?.rows?.map((r) => [r.id, r.qty]), [['A1', 7], ['B2', 5]])
+
+  // delete follows the same key, from a stream that never wrote the row
+  await call('POST', '/v1/streams/catalog-7', { body: appendBody('catalog-7', 0, 'SkuDiscontinued', { sku: 'A1' }), headers: T })
+  const kq3 = await call('POST', '/v1/query/on_hand', { body: { sort: ['id'] }, headers: { ...T, 'X-Auth-UID': 'u1' } })
+  c.eq('none: keyed delete removes the right row', kq3.json?.rows?.map((r) => r.id), ['B2'])
+
+  // a key that does not resolve has no safe default: the append still lands,
+  // the view goes stale, and no row is written under a borrowed identity
+  const noKey = await call('POST', '/v1/streams/order-3', { body: appendBody('order-3', 0, 'StockMoved', { quantity: 1, warehouse: 'w1' }), headers: T })
+  c.status('none: append survives an unresolvable key', noKey, 200)
+  c.eq('none: unresolvable key → projected false', noKey.json?.projected, false)
+  const kq4 = await call('POST', '/v1/query/on_hand', { body: { sort: ['id'] }, headers: { ...T, 'X-Auth-UID': 'u1' } })
+  c.eq('none: unresolvable key writes no row', kq4.json?.rows?.map((r) => r.id), ['B2'])
+
+  // one projection, one identity scheme
+  c.status('none: mixed keying 400', await call('PUT', '/v1/projections', {
+    body: { name: 'mixed', columns: { n: 'integer' }, on: { Thing: { op: 'upsert', key: '$.sku', inc: { n: 1 } }, ThingGone: { op: 'delete' } } },
+    headers: T,
+  }), 400)
+  c.status('none: key must be a payload path 400', await call('PUT', '/v1/projections', {
+    body: { name: 'badkey', columns: { n: 'integer' }, on: { Thing: { op: 'upsert', key: 'sku', inc: { n: 1 } } } },
+    headers: T,
+  }), 400)
+
   // client-supplied event id: honored verbatim; invalid id → 400
   const cid = '01920000-0000-7000-8000-000000000abc'
   const withId = await call('POST', '/v1/streams/cid1', { body: { expectedVersion: 0, events: [{ id: cid, type: 'NoteAdded', streamId: 'cid1', actor: 't', payload: { owner: 'u1', text: 'x', createdAt: 1 } }] }, headers: T })

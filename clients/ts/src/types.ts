@@ -45,6 +45,15 @@ export type ColType = 'text' | 'integer' | 'real' | 'boolean'
 
 export interface OpRule {
   op: 'upsert' | 'delete'
+  /**
+   * The row's identity, as a `$.` payload path. Omitted, the row is the stream
+   * the event landed on. A key lets a fold maintain a total that spans streams.
+   * A key that does not resolve fails the fold (`projected:false`) — there is
+   * no safe default, since falling back to the stream id would put two kinds of
+   * identity in one table. Within a projection every rule carries a key or none
+   * does.
+   */
+  key?: string
   set?: Record<string, string | number | boolean | null>
   /**
    * Add to a column on every matching event. A number is a literal; a `$.`

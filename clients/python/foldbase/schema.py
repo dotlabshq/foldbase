@@ -113,6 +113,20 @@ def _counters(inc: Any) -> Any:
     return inc(_Path("")) if callable(inc) else inc
 
 
+def _key(key: Any) -> Optional[str]:
+    """A rule key is a payload field (lambda e: e.sku) or a "$." path. Omitted,
+    the row is the stream's, as it always was."""
+    if key is None:
+        return None
+    val = key(_Path("")) if callable(key) else key
+    path = _path_of(val)
+    if path is not None:
+        return path
+    if isinstance(val, str) and val.startswith("$."):
+        return val
+    raise ValueError("foldbase: a rule key must be a payload field (e.sku) or a '$.' path")
+
+
 class _RuleBuilder:
     def __init__(self, event_type: str):
         self._evt = event_type
@@ -121,17 +135,22 @@ class _RuleBuilder:
         self,
         fn: Callable[[Any], Dict[str, Any]],
         inc: Optional[Union[Dict[str, Any], Callable[[Any], Dict[str, Any]]]] = None,
+        key: Optional[Union[str, Callable[[Any], Any]]] = None,
     ) -> Dict[str, Any]:
         mapping = fn(_Path(""))
-        return {"op": "upsert", "_set": mapping, "_inc": _counters(inc), "_evt": self._evt}
+        return {"op": "upsert", "_set": mapping, "_inc": _counters(inc), "_key": _key(key), "_evt": self._evt}
 
-    def inc(self, counters: Union[Dict[str, Any], Callable[[Any], Dict[str, Any]]]) -> Dict[str, Any]:
+    def inc(
+        self,
+        counters: Union[Dict[str, Any], Callable[[Any], Dict[str, Any]]],
+        key: Optional[Union[str, Callable[[Any], Any]]] = None,
+    ) -> Dict[str, Any]:
         """Add to counters. A number is a literal; a proxy field (e.at) compiles
         to a payload path, so the total is maintained by the fold."""
-        return {"op": "upsert", "_inc": _counters(counters), "_evt": self._evt}
+        return {"op": "upsert", "_inc": _counters(counters), "_key": _key(key), "_evt": self._evt}
 
-    def delete(self) -> Dict[str, Any]:
-        return {"op": "delete", "_evt": self._evt}
+    def delete(self, key: Optional[Union[str, Callable[[Any], Any]]] = None) -> Dict[str, Any]:
+        return {"op": "delete", "_key": _key(key), "_evt": self._evt}
 
 
 class _On:
@@ -226,6 +245,8 @@ def define_projection(
     for evt_type, raw in rules.items():
         if raw["op"] == "delete":
             wire_on[evt_type] = {"op": "delete"}
+            if raw.get("_key"):
+                wire_on[evt_type]["key"] = raw["_key"]
             continue
         wset: Dict[str, Any] = {}
         for col, val in (raw.get("_set") or {}).items():
@@ -250,6 +271,8 @@ def define_projection(
                 if col not in fixed:
                     _infer(cols, col, _col_type_from_literal(val))
         rule: Dict[str, Any] = {"op": "upsert"}
+        if raw.get("_key"):
+            rule["key"] = raw["_key"]
         if wset:
             rule["set"] = wset
         if winc:

@@ -100,6 +100,25 @@ try {
   await es.append('sku1', 1, [{ type: 'StockMoved', streamId: 'sku1', actor: 'wh', payload: { quantity: -3 } }])
   const stock = await asU1.query('stock')
   check('inc resolves a payload path', stock.rows[0]?.on_hand === 7, JSON.stringify(stock.rows))
+
+  // the row key is a rule: movements on two different streams fold into one
+  // row per sku, and a delete from a third stream removes it
+  await es.putProjection({
+    name: 'on_hand',
+    columns: { qty: 'real' },
+    on: {
+      StockMoved: { op: 'upsert', key: '$.sku', inc: { qty: '$.quantity' } },
+      SkuDiscontinued: { op: 'delete', key: '$.sku' },
+    },
+  })
+  await es.putPolicy({ name: 'on_hand', role: '*' })
+  await es.append('order-1', 0, [{ type: 'StockMoved', streamId: 'order-1', actor: 'wh', payload: { sku: 'A1', quantity: 10 } }])
+  await es.append('shipment-9', 0, [{ type: 'StockMoved', streamId: 'shipment-9', actor: 'wh', payload: { sku: 'A1', quantity: -3 } }])
+  const keyed = await asU1.query('on_hand')
+  check('key folds a total across streams', keyed.rows.length === 1 && keyed.rows[0].id === 'A1' && keyed.rows[0].qty === 7, JSON.stringify(keyed.rows))
+  await es.append('catalog-7', 0, [{ type: 'SkuDiscontinued', streamId: 'catalog-7', actor: 'ops', payload: { sku: 'A1' } }])
+  const afterDiscontinue = await asU1.query('on_hand')
+  check('keyed delete removes the row', afterDiscontinue.rows.length === 0, JSON.stringify(afterDiscontinue.rows))
 } finally {
   await server.stop()
 }
