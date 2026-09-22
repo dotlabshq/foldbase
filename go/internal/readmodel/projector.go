@@ -138,16 +138,33 @@ func resolveKey(rule OpRule, e EventLike) (string, error) {
 	// id is TEXT, so a numeric key is rendered as text — 42, not 42.000000.
 	//
 	// A payload arrives through json.Unmarshal into map[string]any, so every
-	// JSON number is a float64. Past 2^53 an integer is no longer the number the
-	// client sent: two distinct ids round to the same float and would quietly
-	// become one row, which is the single thing this rule exists to prevent.
+	// JSON number is a float64, and the accepted domain is bounded by what that
+	// can carry faithfully: a whole number of magnitude below 2^53.
+	//
+	// Fractional, because an identity is not a fraction and allowing one raises
+	// which spelling of a fraction is which row. At or past 2^53, because an
+	// integer is no longer the number the client sent — 9007199254740993
+	// arrives as ...992 — so two distinct ids would quietly become one row,
+	// the single thing this rule exists to prevent.
+	//
+	// Inside that domain a key is its double value, so `1` and `1.0` are one
+	// identity on purpose. Telling apart two literals that denote the same
+	// double would mean carrying the original JSON text through ingestion and
+	// reload; a client could not hold up its end of that anyway, since
+	// JavaScript's own JSON.parse conflates them too. An id needing more
+	// fidelity than a double belongs in a string.
 	case float64:
+		render := strconv.FormatFloat(k, 'f', -1, 64)
+		if k != math.Trunc(k) {
+			return "", &FoldError{fmt.Sprintf(
+				"key %s: %s is not a whole number — an identity is a string or an integer", rule.Key, render)}
+		}
 		if math.Abs(k) >= 1<<53 {
 			return "", &FoldError{fmt.Sprintf(
-				"key %s: %s is past the range where a JSON number is an exact integer — send the id as a string",
-				rule.Key, strconv.FormatFloat(k, 'f', -1, 64))}
+				"key %s: %s is at or past the range where a JSON number is an exact integer — send the id as a string",
+				rule.Key, render)}
 		}
-		return strconv.FormatFloat(k, 'f', -1, 64), nil
+		return render, nil
 	case int:
 		return strconv.Itoa(k), nil
 	case int64:
