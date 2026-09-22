@@ -57,6 +57,10 @@ subscribe-py: build-go
 authoring-py: build-go
     cd clients/python && python3 -m venv .venv && .venv/bin/pip install -q pydantic && .venv/bin/python tests/authoring.py
 
+# TS typed authoring layer test — pure assertions, no server.
+authoring-ts:
+    cd clients/ts && node --import tsx test/authoring.mjs
+
 # ── examples ──────────────────────────────────────────────────────────────────
 
 demo-ts: build-go
@@ -65,8 +69,8 @@ demo-ts: build-go
 demo-py: build-go
     cd examples/taskboard-py && python3 board.py
 
-# Everything: conformance + realtime + both client smokes.
-test-all: conformance realtime smoke-ts smoke-py subscribe-ts subscribe-py
+# Everything: conformance + realtime + both client smokes + both authoring layers.
+test-all: conformance realtime smoke-ts smoke-py subscribe-ts subscribe-py authoring-ts
 
 # The Spek gate (loop/ACCEPTANCE.md): the single machine oracle that proves the
 # behavioral contract. Exit 0 ⇔ the Go binary upholds openapi.yaml.

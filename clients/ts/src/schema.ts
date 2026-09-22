@@ -201,12 +201,12 @@ export function defineProjection<S extends EventShapes>(
         if (!opts.columns?.[col]) inferColumn(columns, col, colTypeFromLiteral(val))
       }
     }
-    const inc: Record<string, number | string> = {}
+    const inc: Record<string, number | `$.${string}`> = {}
     for (const [col, val] of Object.entries(raw.inc ?? {})) {
       const path = pathOf(val)
       if (path) {
-        inc[col] = path
-        if (!opts.columns?.[col]) inferColumn(columns, col, colTypeFromPath(catalog, evtType, path))
+        inc[col] = path as `$.${string}`
+        if (!opts.columns?.[col]) inferColumn(columns, col, incColTypeFromPath(catalog, evtType, path))
       } else {
         inc[col] = val as number
         if (!opts.columns?.[col]) inferColumn(columns, col, colTypeFromLiteral(val))
@@ -233,6 +233,27 @@ function colTypeFromPath<S extends EventShapes>(catalog: EventCatalog<S>, evtTyp
   const shape = schema.shape as Record<string, z.ZodTypeAny>
   const field = shape[parts[0]!]
   return field ? colTypeOfZod(field) : 'text'
+}
+
+/** Column type for an inc path. A nested inc path is not folded to JSON the way
+ *  a nested set is — the server resolves it and adds the number to a numeric
+ *  column — so the type comes from the leaf. A leaf that is not a number is a
+ *  definition bug, caught here rather than as a fold error on every event. */
+function incColTypeFromPath<S extends EventShapes>(catalog: EventCatalog<S>, evtType: string, path: string): ColType {
+  const schema = catalog.schemas[evtType]
+  if (!schema) throw new Error(`foldbase: unknown event type '${evtType}'`)
+  let field: z.ZodTypeAny | undefined
+  let shape: Record<string, z.ZodTypeAny> | undefined = schema.shape as Record<string, z.ZodTypeAny>
+  for (const part of path.slice(2).split('.')) {
+    field = shape?.[part]
+    if (!field) throw new Error(`foldbase: inc path ${path} does not name a field of '${evtType}'`)
+    shape = (unwrap(field) as unknown as { shape?: Record<string, z.ZodTypeAny> }).shape
+  }
+  const col = colTypeOfZod(field!)
+  if (col !== 'integer' && col !== 'real') {
+    throw new Error(`foldbase: inc path ${path} must name a number, not ${col}`)
+  }
+  return col
 }
 
 function colTypeFromLiteral(val: unknown): ColType {

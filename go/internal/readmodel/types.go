@@ -9,7 +9,6 @@ import (
 	"database/sql"
 	"errors"
 	"regexp"
-	"strings"
 )
 
 // SQLDB is the minimal SQL surface the engine needs — *sql.DB satisfies it,
@@ -29,6 +28,19 @@ var eventTypeRe = regexp.MustCompile(`^[A-Z][A-Za-z0-9]+$`)
 
 // sortRe — an optional leading '-' then an identifier.
 var sortRe = regexp.MustCompile(`^-?[a-z][a-z0-9_]*$`)
+
+// payloadPathRe is the grammar for a "$." payload path: "$." followed by one or
+// more non-empty, dot-separated segments. A segment may be any field name JSON
+// allows, so nothing is assumed about its shape beyond being non-empty — which
+// is what rules out "$.", "$.a..b" and "$.a.".
+//
+// Applied where a path is load-bearing: an inc value and (later) a row key,
+// where an unresolvable path fails the fold. A set path is deliberately left
+// alone — there, a path that resolves to nothing writes a visible NULL.
+var payloadPathRe = regexp.MustCompile(`^\$\.[^.]+(\.[^.]+)*$`)
+
+// IsPayloadPath reports whether s is a well-formed "$." payload path.
+func IsPayloadPath(s string) bool { return payloadPathRe.MatchString(s) }
 
 func isIdentifier(s string) bool { return identifierRe.MatchString(s) }
 
@@ -143,7 +155,7 @@ func validIncValue(v any) bool {
 	case float64, int, int64:
 		return true
 	case string:
-		return strings.HasPrefix(n, "$.")
+		return IsPayloadPath(n)
 	default:
 		return false
 	}

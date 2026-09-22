@@ -87,11 +87,16 @@ class Status(str, enum.Enum):
     done = "done"
 
 
+class Estimate(BaseModel):
+    points: int
+
+
 class TaskCreated(BaseModel):
     owner: str
     title: str
     at: int
     pinned: bool = False
+    estimate: Estimate = Estimate(points=0)
 
 
 class TaskMoved(BaseModel):
@@ -117,6 +122,11 @@ stats = define_projection("board_stats", Tasks, lambda on: {
 totals = define_projection("board_totals", Tasks, lambda on: {
     "TaskCreated": on.TaskCreated.inc(lambda e: {"created": 1, "age_sum": e.at}),
 })
+# a nested inc path: the server resolves it and adds a number, so the column
+# must be typed from the leaf — not folded to text the way a nested set is
+nested = define_projection("board_points", Tasks, lambda on: {
+    "TaskCreated": on.TaskCreated.inc(lambda e: {"points": e.estimate.points}),
+})
 
 
 def main() -> int:
@@ -136,6 +146,12 @@ def main() -> int:
     check("inc path column typed from the model",
           totals.definition["columns"] == {"created": "integer", "age_sum": "integer"},
           str(totals.definition["columns"]))
+    check("nested inc path compiles to a wire path",
+          nested.definition["on"]["TaskCreated"]["inc"] == {"points": "$.estimate.points"},
+          str(nested.definition["on"]["TaskCreated"]))
+    check("nested inc column typed from the leaf, not text",
+          nested.definition["columns"] == {"points": "integer"},
+          str(nested.definition["columns"]))
 
     # runtime path validation: a typo raises at author time
     typo_raised = False

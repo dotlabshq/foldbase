@@ -169,3 +169,52 @@ func TestRebuildSkipsUnfoldableEventsAndCountsThem(t *testing.T) {
 		t.Fatal("a2 could not be folded and must leave no row")
 	}
 }
+
+// "$." with nothing after it, or an empty segment, names no field. Rejecting
+// those at registration keeps the failure where the mistake is, instead of one
+// fold error per event forever.
+func TestIncPathGrammarValidatedAtRegistration(t *testing.T) {
+	_, reg := setupInc(t)
+	for _, bad := range []string{"$.", "$.a..b", "$..a", "$.a."} {
+		err := reg.SaveProjection(&ProjectionDef{
+			Name:    "badpath",
+			Columns: map[string]string{"n": "integer"},
+			On:      map[string]OpRule{"Thing": {Op: "upsert", Inc: map[string]any{"n": bad}}},
+		})
+		if _, ok := err.(*ValidationError); !ok {
+			t.Fatalf("inc path %q: expected ValidationError, got %T: %v", bad, err, err)
+		}
+	}
+	// A nested path is a real path and stays valid.
+	if err := reg.SaveProjection(&ProjectionDef{
+		Name:    "nested",
+		Columns: map[string]string{"n": "integer"},
+		On:      map[string]OpRule{"Thing": {Op: "upsert", Inc: map[string]any{"n": "$.line.qty"}}},
+	}); err != nil {
+		t.Fatalf("a nested inc path must stay valid: %v", err)
+	}
+}
+
+// The server resolves a nested inc path, so the authoring layers must not
+// declare it as a text column (see the client tests).
+func TestIncResolvesANestedPath(t *testing.T) {
+	db, reg := setupInc(t)
+	if err := reg.SaveProjection(&ProjectionDef{
+		Name:    "nested",
+		Columns: map[string]string{"n": "integer"},
+		On:      map[string]OpRule{"Thing": {Op: "upsert", Inc: map[string]any{"n": "$.line.qty"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyEvent(db, reg, EventLike{Type: "Thing", StreamID: "s1", Tenant: "acme",
+		Payload: map[string]any{"line": map[string]any{"qty": 4.0}}}); err != nil {
+		t.Fatalf("fold: %v", err)
+	}
+	var n int64
+	if err := db.QueryRow(`SELECT n FROM read_nested WHERE tenant = ? AND id = ?`, "acme", "s1").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 4 {
+		t.Fatalf("n: got %d, want 4", n)
+	}
+}
