@@ -34,9 +34,9 @@ var sortRe = regexp.MustCompile(`^-?[a-z][a-z0-9_]*$`)
 // allows, so nothing is assumed about its shape beyond being non-empty — which
 // is what rules out "$.", "$.a..b" and "$.a.".
 //
-// Applied where a path is load-bearing: an inc value and (later) a row key,
-// where an unresolvable path fails the fold. A set path is deliberately left
-// alone — there, a path that resolves to nothing writes a visible NULL.
+// Applied where a path is load-bearing: an inc value and a row key, where an
+// unresolvable path fails the fold. A set path is deliberately left alone —
+// there, a path that resolves to nothing writes a visible NULL.
 var payloadPathRe = regexp.MustCompile(`^\$\.[^.]+(\.[^.]+)*$`)
 
 // IsPayloadPath reports whether s is a well-formed "$." payload path.
@@ -137,7 +137,7 @@ func ValidateProjection(d *ProjectionDef) error {
 		if rule.Key == "" {
 			unkeyed++
 		} else {
-			if !strings.HasPrefix(rule.Key, "$.") || len(rule.Key) < 3 {
+			if !IsPayloadPath(rule.Key) {
 				return &ValidationError{"rule key must be a $. payload path: " + evt}
 			}
 			keyed++

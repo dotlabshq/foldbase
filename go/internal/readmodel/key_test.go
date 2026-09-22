@@ -180,15 +180,27 @@ func TestMixedKeyingRejectedAtRegistration(t *testing.T) {
 	}
 }
 
+// A key is held to the same payload-path grammar as an inc value: "$." then one
+// or more non-empty dot-separated segments.
 func TestKeyMustBeAPayloadPath(t *testing.T) {
 	_, reg := setupKeyed(t)
-	err := reg.SaveProjection(&ProjectionDef{
-		Name:    "badkey",
+	for _, bad := range []string{"sku", "$.", "$.a..b", "$..a", "$.a."} {
+		err := reg.SaveProjection(&ProjectionDef{
+			Name:    "badkey",
+			Columns: map[string]string{"n": "integer"},
+			On:      map[string]OpRule{"ThingHappened": {Op: "upsert", Key: bad, Inc: map[string]any{"n": 1}}},
+		})
+		if _, ok := err.(*ValidationError); !ok {
+			t.Fatalf("key %q: expected ValidationError, got %T: %v", bad, err, err)
+		}
+	}
+	// A nested key is a real path and stays valid.
+	if err := reg.SaveProjection(&ProjectionDef{
+		Name:    "nestedkey",
 		Columns: map[string]string{"n": "integer"},
-		On:      map[string]OpRule{"ThingHappened": {Op: "upsert", Key: "sku", Inc: map[string]any{"n": 1}}},
-	})
-	if _, ok := err.(*ValidationError); !ok {
-		t.Fatalf("expected ValidationError for a key that is not a $. path, got %T: %v", err, err)
+		On:      map[string]OpRule{"ThingHappened": {Op: "upsert", Key: "$.line.sku", Inc: map[string]any{"n": 1}}},
+	}); err != nil {
+		t.Fatalf("a nested key must stay valid: %v", err)
 	}
 }
 

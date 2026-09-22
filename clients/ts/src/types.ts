@@ -53,7 +53,7 @@ export interface OpRule {
    * identity in one table. Within a projection every rule carries a key or none
    * does.
    */
-  key?: string
+  key?: `$.${string}`
   set?: Record<string, string | number | boolean | null>
   /**
    * Add to a column on every matching event. A number is a literal; a `$.`

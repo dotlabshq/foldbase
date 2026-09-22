@@ -52,6 +52,25 @@ const points = defineProjection('board_points', Tasks, (on) => ({
 check('nested inc path compiles to a wire path', points.def.on.TaskCreated.inc?.points === '$.estimate.points', JSON.stringify(points.def.on.TaskCreated))
 check('nested inc column typed from the leaf, not text', points.def.columns.points === 'integer', JSON.stringify(points.def.columns))
 
+// the row key is a rule too: one row per owner, across every task stream
+const perOwner = defineProjection('board_per_owner', Tasks, (on) => ({
+  TaskCreated: on.TaskCreated.inc(() => ({ created: 1 }), { key: (e) => e.owner }),
+  TaskDeleted: on.TaskDeleted.delete({ key: (e) => e.owner }),
+}))
+check('key proxy → wire path', perOwner.def.on.TaskCreated.key === '$.owner', JSON.stringify(perOwner.def.on.TaskCreated))
+check('delete carries the same key', JSON.stringify(perOwner.def.on.TaskDeleted) === JSON.stringify({ op: 'delete', key: '$.owner' }), JSON.stringify(perOwner.def.on.TaskDeleted))
+
+// a key that is not a payload path is rejected where it is written
+let badKey = false
+try {
+  defineProjection('bad_key', Tasks, (on) => ({
+    TaskCreated: on.TaskCreated.inc(() => ({ created: 1 }), { key: 'owner' }),
+  }))
+} catch {
+  badKey = true
+}
+check('a key that is not a $. path is rejected', badKey)
+
 // an inc path that does not name a number is a definition bug, caught here
 let rejected = false
 try {

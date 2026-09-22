@@ -126,6 +126,7 @@ totals = define_projection("board_totals", Tasks, lambda on: {
 # must be typed from the leaf — not folded to text the way a nested set is
 nested = define_projection("board_points", Tasks, lambda on: {
     "TaskCreated": on.TaskCreated.inc(lambda e: {"points": e.estimate.points}),
+})
 # the row key is a rule too: one row per owner, across every task stream
 per_owner = define_projection("board_per_owner", Tasks, lambda on: {
     "TaskCreated": on.TaskCreated.inc(lambda e: {"created": 1}, key=lambda e: e.owner),
