@@ -144,3 +144,42 @@ func TestWhereBindsBooleansAsIntegers(t *testing.T) {
 		}
 	}
 }
+
+// The invariant that matters is agreement: what a query returns as true must be
+// exactly what `eq: true` matches. Because integer → boolean needs no
+// migration, a column can still hold a value foldbase never wrote — an old
+// counter of 2. Whatever such a value reads back as, the filter must agree.
+func TestBooleanReadAndFilterAgree(t *testing.T) {
+	db, reg := setupBool(t)
+	ctx := AuthCtx{Tenant: "acme", UID: "u1"}
+	// A leftover from the column's life as an integer counter.
+	if _, err := db.Exec(`INSERT INTO read_tasks (tenant, id, owner, done, updated_at) VALUES (?, ?, ?, ?, ?)`,
+		"acme", "t9", "u1", 2, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	all, err := ExecQuery(db, reg, "tasks", map[string]any{"sort": []any{"id"}}, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readsTrue := map[string]bool{}
+	for _, r := range all.Rows {
+		readsTrue[r["id"].(string)] = r["done"] == true
+	}
+
+	matched, err := ExecQuery(db, reg, "tasks", map[string]any{"where": map[string]any{"done": map[string]any{"eq": true}}}, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filtered := map[string]bool{}
+	for _, r := range matched.Rows {
+		filtered[r["id"].(string)] = true
+	}
+
+	for id, isTrue := range readsTrue {
+		if isTrue != filtered[id] {
+			t.Fatalf("row %s reads done=%v but `eq: true` %s it", id, isTrue,
+				map[bool]string{true: "matched", false: "did not match"}[filtered[id]])
+		}
+	}
+}

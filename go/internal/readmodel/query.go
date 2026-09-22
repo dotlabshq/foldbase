@@ -398,6 +398,12 @@ func coerce(v any) any {
 // modernc/sqlite and pgx today, but a dialect is free to return bool), so
 // every numeric shape is accepted and anything unrecognised is passed through
 // rather than guessed at.
+//
+// Only 1 is true, not "anything non-zero". Because integer → boolean needs no
+// migration, a column can still hold a value foldbase never wrote — a 2 left
+// over from its life as a counter. `normalize` binds a true filter as exactly
+// 1, so reading 2 as true would make a row come back true that `eq: true` does
+// not match. Neither answer is right for a 2; agreeing with the filter is.
 func asBool(v any) any {
 	switch n := v.(type) {
 	case nil:
@@ -405,13 +411,13 @@ func asBool(v any) any {
 	case bool:
 		return n
 	case int64:
-		return n != 0
+		return n == 1
 	case int:
-		return n != 0
+		return n == 1
 	case float64:
-		return n != 0
+		return n == 1
 	case string:
-		return n != "" && n != "0" && n != "false"
+		return n == "1"
 	default:
 		return v
 	}
