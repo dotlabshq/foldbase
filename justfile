@@ -95,6 +95,8 @@ dev-web: build-go
 build-docker tag="latest":
     docker build -f go/Dockerfile -t {{image}}:{{tag}} go
 
+# Pushes whatever build-docker left behind — which is this machine's
+# architecture alone. For anything anyone else pulls, use release-docker.
 push-docker tag="latest":
     docker push {{image}}:{{tag}}
 
