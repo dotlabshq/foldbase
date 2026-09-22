@@ -309,3 +309,8 @@ binding = "EVENTS"                # host app discovers it as EVENTS_SERVICE_URL
 
 The owning app registers its projections + policies on ITS boot (idempotent,
 like migrations), then emits events and queries — zero per-table code.
+
+The published image is the Go binary on `distroless/static`, running as uid
+65532 — no shell, no package manager, no libc, because a CGO-free build needs
+none. `just release-docker <tag>` pushes one manifest covering `linux/amd64`
+and `linux/arm64`; both are cross-compiled natively rather than emulated.

@@ -87,15 +87,20 @@ dev-web: build-go
     cd examples/taskboard-web && node --import tsx server.mjs
 
 # ── docker (Go static binary → ghcr; context is the go/ dir) ──────────────────
-# The shipped image is the Go implementation (ADR-006/ADR-011, distroless static
-# binary). Build for multi-arch with buildx when publishing to ghcr.
+# The shipped image is the Go implementation (ADR-006/ADR-011): a distroless
+# static binary, running as uid 65532. The build context is go/ so nothing else
+# in the repo reaches the daemon.
 
+# One image for this machine, loaded into the local daemon.
 build-docker tag="latest":
-    docker build --platform linux/amd64 -f go/Dockerfile -t {{image}}:{{tag}} go
+    docker build -f go/Dockerfile -t {{image}}:{{tag}} go
 
 push-docker tag="latest":
     docker push {{image}}:{{tag}}
 
+# Multi-arch release: one manifest covering amd64 and arm64, pushed in one go.
+# buildx must push rather than load, because the local daemon holds one
+# architecture at a time and cannot store a manifest list.
 release-docker tag="latest":
-    just build-docker {{tag}}
-    just push-docker {{tag}}
+    docker buildx build --platform linux/amd64,linux/arm64 \
+        -f go/Dockerfile -t {{image}}:{{tag}} --push go

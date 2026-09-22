@@ -9,10 +9,10 @@ loop) reproduces the same verification.
 | Tool | Version | Used for |
 |---|---|---|
 | Go | 1.26+ | production implementation (`go/`), unit tests, the static binary |
-| Node | 20+ (22 recommended) | TS reference (`src/`), TS client, the conformance runner (`conformance/*.mjs`) |
+| Node | 20+ (22 recommended) | TS client (`clients/ts`), the conformance runner (`conformance/*.mjs`) |
 | Python | 3.9+ | Python client core (stdlib only); authoring extra needs pydantic ≥ 2 |
 | just | any | task runner (defines the gate) |
-| Docker | any | disposable PostgreSQL for `conformance-pg` (optional) |
+| Docker | any | the published image (`just build-docker` / `release-docker`); disposable PostgreSQL for `conformance-pg` (optional) |
 
 ## Dependencies (deliberately minimal)
 
@@ -24,8 +24,8 @@ loop) reproduces the same verification.
 ## The gate depends on
 
 `just gate` = `just test-go` + `just conformance` + `just realtime`. It requires
-a built Go binary (`just build-go`), a built TS reference (`just build-ts`), and
-Node on PATH. The conformance runner boots each server as a subprocess and
+a built Go binary (`just build-go`, which every gate recipe depends on) and Node
+on PATH. `just build-ts` is gone — ADR-011 retired the TS reference. The conformance runner boots each server as a subprocess and
 drives it over HTTP; it needs no database service (SQLite `:memory:`). The
 PostgreSQL extension (`just conformance-pg`) additionally needs a reachable
 Postgres and `FB_DB_URL` / `FB_DB_RESET`.
