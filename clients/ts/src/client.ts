@@ -127,7 +127,7 @@ export class FoldBase {
 
   // ── definitions + admin (control plane; needs a service token) ──────────────
 
-  putProjection(def: ProjectionDef): Promise<{ ok: true; name: string; rebuiltFrom: number }> {
+  putProjection(def: ProjectionDef): Promise<{ ok: true; name: string; rebuiltFrom: number; skipped: number }> {
     return this.call('PUT', '/v1/projections', def)
   }
 
@@ -135,7 +135,7 @@ export class FoldBase {
     return this.call('PUT', '/v1/policies', def)
   }
 
-  rebuild(name?: string): Promise<{ ok: true; rebuiltFrom: number }> {
+  rebuild(name?: string): Promise<{ ok: true; rebuiltFrom: number; skipped: number }> {
     return this.call('POST', '/admin/rebuild', name ? { name } : {})
   }
 

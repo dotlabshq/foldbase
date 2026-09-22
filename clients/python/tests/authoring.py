@@ -113,6 +113,10 @@ tasks = define_projection("tasks", Tasks, lambda on: {
 stats = define_projection("board_stats", Tasks, lambda on: {
     "TaskCreated": on.TaskCreated.inc({"created": 1}),
 })
+# inc can read the payload: a total maintained by the fold, not by the app
+totals = define_projection("board_totals", Tasks, lambda on: {
+    "TaskCreated": on.TaskCreated.inc(lambda e: {"created": 1, "age_sum": e.at}),
+})
 
 
 def main() -> int:
@@ -126,6 +130,12 @@ def main() -> int:
           str(tasks.definition["on"]["TaskCreated"]))
     check("delete rule compiled", tasks.definition["on"]["TaskDeleted"] == {"op": "delete"})
     check("inc rule → integer column", stats.definition["columns"] == {"created": "integer"} and stats.definition["on"]["TaskCreated"]["inc"] == {"created": 1})
+    check("inc proxy path → wire path",
+          totals.definition["on"]["TaskCreated"]["inc"] == {"created": 1, "age_sum": "$.at"},
+          str(totals.definition["on"]["TaskCreated"]))
+    check("inc path column typed from the model",
+          totals.definition["columns"] == {"created": "integer", "age_sum": "integer"},
+          str(totals.definition["columns"]))
 
     # runtime path validation: a typo raises at author time
     typo_raised = False

@@ -112,26 +112,36 @@ type SetMap = Record<string, string | number | boolean | null>
 interface RawRule {
   op: 'upsert' | 'delete'
   set?: Record<string, unknown> // column → path-marker | literal
-  inc?: Record<string, number>
+  inc?: Record<string, unknown> // column → path-marker | number
 }
+
+/** inc takes a plain mapping, or a lambda over the event so a counter can name
+ *  a payload field the way upsert already does. */
+type Counters<P> = Record<string, number> | ((e: P) => Record<string, number>)
 
 export interface RuleBuilder<P> {
   /** Merge columns into the row keyed by (tenant, streamId). */
-  upsert(fn: (e: P) => Record<string, string | number | boolean | null>, opts?: { inc?: Record<string, number> }): RawRule
-  /** Increment numeric counters only. */
-  inc(counters: Record<string, number>): RawRule
+  upsert(fn: (e: P) => Record<string, string | number | boolean | null>, opts?: { inc?: Counters<P> }): RawRule
+  /** Add to counters only — a literal, or a payload field (`(e) => ({ n: e.qty })`). */
+  inc(counters: Counters<P>): RawRule
   /** Remove the row. */
   delete(): RawRule
+}
+
+function resolveCounters<P>(counters: Counters<P> | undefined): Record<string, unknown> | undefined {
+  if (!counters) return undefined
+  return typeof counters === 'function' ? (counters(pathProxy('') as P) as Record<string, unknown>) : counters
 }
 
 function ruleBuilder<P>(): RuleBuilder<P> {
   return {
     upsert(fn, opts) {
       const set = fn(pathProxy('') as P) as Record<string, unknown>
-      return { op: 'upsert', set, ...(opts?.inc ? { inc: opts.inc } : {}) }
+      const inc = resolveCounters(opts?.inc)
+      return { op: 'upsert', set, ...(inc ? { inc } : {}) }
     },
     inc(counters) {
-      return { op: 'upsert', inc: counters }
+      return { op: 'upsert', inc: resolveCounters(counters) }
     },
     delete() {
       return { op: 'delete' }
@@ -191,13 +201,21 @@ export function defineProjection<S extends EventShapes>(
         if (!opts.columns?.[col]) inferColumn(columns, col, colTypeFromLiteral(val))
       }
     }
-    for (const col of Object.keys(raw.inc ?? {})) {
-      if (!opts.columns?.[col]) inferColumn(columns, col, 'integer')
+    const inc: Record<string, number | string> = {}
+    for (const [col, val] of Object.entries(raw.inc ?? {})) {
+      const path = pathOf(val)
+      if (path) {
+        inc[col] = path
+        if (!opts.columns?.[col]) inferColumn(columns, col, colTypeFromPath(catalog, evtType, path))
+      } else {
+        inc[col] = val as number
+        if (!opts.columns?.[col]) inferColumn(columns, col, colTypeFromLiteral(val))
+      }
     }
     wireOn[evtType] = {
       op: 'upsert',
       ...(Object.keys(set).length ? { set } : {}),
-      ...(raw.inc ? { inc: raw.inc } : {}),
+      ...(Object.keys(inc).length ? { inc } : {}),
     }
   }
 

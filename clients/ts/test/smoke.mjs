@@ -87,6 +87,19 @@ try {
 
   const rb = await es.rebuild()
   check('rebuild', rb.ok === true)
+  check('rebuild reports what it could not fold', rb.skipped === 0, JSON.stringify(rb))
+
+  // inc reads the payload: a total maintained by the fold, not by the app
+  await es.putProjection({
+    name: 'stock',
+    columns: { on_hand: 'real' },
+    on: { StockMoved: { op: 'upsert', inc: { on_hand: '$.quantity' } } },
+  })
+  await es.putPolicy({ name: 'stock', role: '*' })
+  await es.append('sku1', 0, [{ type: 'StockMoved', streamId: 'sku1', actor: 'wh', payload: { quantity: 10 } }])
+  await es.append('sku1', 1, [{ type: 'StockMoved', streamId: 'sku1', actor: 'wh', payload: { quantity: -3 } }])
+  const stock = await asU1.query('stock')
+  check('inc resolves a payload path', stock.rows[0]?.on_hand === 7, JSON.stringify(stock.rows))
 } finally {
   await server.stop()
 }

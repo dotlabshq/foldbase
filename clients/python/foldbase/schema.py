@@ -19,7 +19,7 @@ from __future__ import annotations
 import enum
 import re
 import typing
-from typing import Any, Callable, Dict, Optional, Type
+from typing import Any, Callable, Dict, Optional, Type, Union
 
 from pydantic import BaseModel
 
@@ -107,16 +107,28 @@ def _path_of(v: Any) -> Optional[str]:
 
 
 # ── rule builders ─────────────────────────────────────────────────────────────
+def _counters(inc: Any) -> Any:
+    """inc takes a plain mapping, or a lambda over the event so a counter can
+    name a payload field the way upsert already does."""
+    return inc(_Path("")) if callable(inc) else inc
+
+
 class _RuleBuilder:
     def __init__(self, event_type: str):
         self._evt = event_type
 
-    def upsert(self, fn: Callable[[Any], Dict[str, Any]], inc: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
+    def upsert(
+        self,
+        fn: Callable[[Any], Dict[str, Any]],
+        inc: Optional[Union[Dict[str, Any], Callable[[Any], Dict[str, Any]]]] = None,
+    ) -> Dict[str, Any]:
         mapping = fn(_Path(""))
-        return {"op": "upsert", "_set": mapping, "_inc": inc, "_evt": self._evt}
+        return {"op": "upsert", "_set": mapping, "_inc": _counters(inc), "_evt": self._evt}
 
-    def inc(self, counters: Dict[str, float]) -> Dict[str, Any]:
-        return {"op": "upsert", "_inc": counters, "_evt": self._evt}
+    def inc(self, counters: Union[Dict[str, Any], Callable[[Any], Dict[str, Any]]]) -> Dict[str, Any]:
+        """Add to counters. A number is a literal; a proxy field (e.at) compiles
+        to a payload path, so the total is maintained by the fold."""
+        return {"op": "upsert", "_inc": _counters(counters), "_evt": self._evt}
 
     def delete(self) -> Dict[str, Any]:
         return {"op": "delete", "_evt": self._evt}
@@ -203,14 +215,22 @@ def define_projection(
                 wset[col] = val
                 if col not in fixed:
                     _infer(cols, col, _col_type_from_literal(val))
-        for col in (raw.get("_inc") or {}):
-            if col not in fixed:
-                _infer(cols, col, "integer")
+        winc: Dict[str, Any] = {}
+        for col, val in (raw.get("_inc") or {}).items():
+            path = _path_of(val)
+            if path is not None:
+                winc[col] = path
+                if col not in fixed:
+                    _infer(cols, col, _col_type_from_path(catalog, raw["_evt"], path))
+            else:
+                winc[col] = val
+                if col not in fixed:
+                    _infer(cols, col, _col_type_from_literal(val))
         rule: Dict[str, Any] = {"op": "upsert"}
         if wset:
             rule["set"] = wset
-        if raw.get("_inc"):
-            rule["inc"] = raw["_inc"]
+        if winc:
+            rule["inc"] = winc
         wire_on[evt_type] = rule
 
     definition: Dict[str, Any] = {"name": name, "columns": cols, "on": wire_on}

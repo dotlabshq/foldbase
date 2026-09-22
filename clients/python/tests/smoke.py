@@ -135,6 +135,7 @@ def main() -> int:
         check("delete removes row", len(as_u1.query("notes")["rows"]) == 0)
         rb = es.rebuild()
         check("rebuild", rb.get("ok") is True)
+        check("rebuild reports what it could not fold", rb.get("skipped") == 0, str(rb))
 
         # deny-by-default: no uid → policy unsatisfiable → 403
         denied = None

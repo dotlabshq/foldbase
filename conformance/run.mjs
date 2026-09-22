@@ -131,6 +131,55 @@ async function suiteNone(call, c) {
   c.eq('none: boolean eq filters', fEq.json?.rows?.map((r) => r.id), ['f1'])
   const fIn = await call('POST', '/v1/query/flags', { body: { where: { done: { in: [true] } }, sort: ['id'] }, headers: { ...T, 'X-Auth-UID': 'u1' } })
   c.eq('none: boolean in filters', fIn.json?.rows?.map((r) => r.id), ['f1'])
+  // inc reads the payload: a total is maintained by the fold, not by the app.
+  // A literal still counts (note_stats above); a "$." path adds the number the
+  // event carries, negatives included.
+  await call('PUT', '/v1/projections', {
+    body: {
+      name: 'stock',
+      columns: { on_hand: 'real', moves: 'integer' },
+      on: { StockMoved: { op: 'upsert', inc: { on_hand: '$.quantity', moves: 1 } } },
+    },
+    headers: T,
+  })
+  await call('PUT', '/v1/policies', { body: { name: 'stock', role: '*' }, headers: T })
+  await call('POST', '/v1/streams/sku1', { body: appendBody('sku1', 0, 'StockMoved', { quantity: 10 }), headers: T })
+  const moveOut = await call('POST', '/v1/streams/sku1', { body: appendBody('sku1', 1, 'StockMoved', { quantity: -3 }), headers: T })
+  c.eq('none: inc path projected', moveOut.json?.projected, true)
+  const sq = await call('POST', '/v1/query/stock', { body: {}, headers: { ...T, 'X-Auth-UID': 'u1' } })
+  c.eq('none: inc resolves payload path', sq.json?.rows?.[0]?.on_hand, 7)
+  c.eq('none: inc literal still counts', sq.json?.rows?.[0]?.moves, 2)
+
+  // an explicit null is the app saying "no movement" — deliberate, counts as 0
+  const nullMove = await call('POST', '/v1/streams/sku2', { body: appendBody('sku2', 0, 'StockMoved', { quantity: null }), headers: T })
+  c.eq('none: inc explicit null projects', nullMove.json?.projected, true)
+  const sq2 = await call('POST', '/v1/query/stock', { body: { where: { id: { eq: 'sku2' } } }, headers: { ...T, 'X-Auth-UID': 'u1' } })
+  c.eq('none: inc explicit null counts as zero', sq2.json?.rows?.[0]?.on_hand, 0)
+
+  // a field the definition names but the event does not carry is a definition
+  // bug: the append still succeeds (log-first) and the view goes stale, rather
+  // than a 0 that reads like a real total
+  const missing = await call('POST', '/v1/streams/sku3', { body: appendBody('sku3', 0, 'StockMoved', { qty: 5 }), headers: T })
+  c.status('none: append survives a failed fold', missing, 200)
+  c.eq('none: unresolvable inc path → projected false', missing.json?.projected, false)
+  const sq3 = await call('POST', '/v1/query/stock', { body: { where: { id: { eq: 'sku3' } } }, headers: { ...T, 'X-Auth-UID': 'u1' } })
+  c.eq('none: failed fold leaves no row', sq3.json?.rows?.length, 0)
+
+  // an inc value is a number or a "$." path — anything else is rejected when
+  // the definition is registered, not when an event arrives
+  c.status('none: malformed inc value 400', await call('PUT', '/v1/projections', {
+    body: { name: 'badinc', columns: { n: 'integer' }, on: { Thing: { op: 'upsert', inc: { n: 'quantity' } } } },
+    headers: T,
+  }), 400)
+
+  // a rebuild is the repair mechanism, so one event the current rules cannot
+  // fold must not take the repair away from every event that can be: it is
+  // skipped, counted and reported, never fatal
+  const rbSkip = await call('POST', '/admin/rebuild', { body: { name: 'stock' }, headers: T })
+  c.status('none: rebuild survives an unfoldable event', rbSkip, 200)
+  c.eq('none: rebuild reports what it could not fold', rbSkip.json?.skipped, 1)
+  const sq4 = await call('POST', '/v1/query/stock', { body: { sort: ['id'] }, headers: { ...T, 'X-Auth-UID': 'u1' } })
+  c.eq('none: rebuild still folded the good events', sq4.json?.rows?.map((r) => r.id), ['sku1', 'sku2'])
 
   // client-supplied event id: honored verbatim; invalid id → 400
   const cid = '01920000-0000-7000-8000-000000000abc'

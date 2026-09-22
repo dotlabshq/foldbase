@@ -46,7 +46,15 @@ export type ColType = 'text' | 'integer' | 'real' | 'boolean'
 export interface OpRule {
   op: 'upsert' | 'delete'
   set?: Record<string, string | number | boolean | null>
-  inc?: Record<string, number>
+  /**
+   * Add to a column on every matching event. A number is a literal; a `$.`
+   * string is a payload path, so a total can be maintained by the fold rather
+   * than by the app. A path the payload does not carry — or a value that is
+   * not a number — fails the fold (`projected:false`) rather than counting as
+   * zero, because zero is a valid total and could not be told apart from a
+   * real one. A field present and explicitly null counts as zero.
+   */
+  inc?: Record<string, number | string>
 }
 
 export interface ProjectionDef {

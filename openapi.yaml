@@ -363,7 +363,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [ok, name, rebuiltFrom]
+                required: [ok, name, rebuiltFrom, skipped]
                 properties:
                   ok: { type: boolean, const: true }
                   name: { $ref: "#/components/schemas/Identifier" }
@@ -371,6 +371,15 @@ paths:
                     type: integer
                     minimum: 0
                     description: Number of events replayed into the rebuilt model.
+                  skipped:
+                    type: integer
+                    minimum: 0
+                    description: >
+                      Events the definition could not fold — a path the payload
+                      does not carry, a value of the wrong type. They are
+                      skipped rather than fatal: a rebuild is the repair
+                      mechanism, so one unfoldable event must not cost every
+                      event that can be folded. Reported so the gap is visible.
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -465,13 +474,22 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [ok, rebuiltFrom]
+                required: [ok, rebuiltFrom, skipped]
                 properties:
                   ok: { type: boolean, const: true }
                   rebuiltFrom:
                     type: integer
                     minimum: 0
                     description: Number of events replayed.
+                  skipped:
+                    type: integer
+                    minimum: 0
+                    description: >
+                      Events the definition could not fold — a path the payload
+                      does not carry, a value of the wrong type. They are
+                      skipped rather than fatal: a rebuild is the repair
+                      mechanism, so one unfoldable event must not cost every
+                      event that can be folded. Reported so the gap is visible.
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -778,7 +796,20 @@ components:
         inc:
           type: object
           propertyNames: { pattern: "^[a-z][a-z0-9_]*$" }
-          additionalProperties: { type: number }
+          additionalProperties:
+            oneOf:
+              - type: number
+              - type: string
+                pattern: "^\\$\\."
+          description: >
+            Add to a column on every matching event. A number is a literal; a
+            "$." string is a payload path resolved like a set value, so a total
+            can be maintained by the fold rather than by the app. A path the
+            payload does not carry, or a value that is not a number, fails the
+            fold (the append still succeeds, with projected:false) rather than
+            counting as zero — zero is a valid total and could not be told apart
+            from a real one. A field present and explicitly null is deliberate
+            and counts as zero.
 
     ProjectionDef:
       type: object
