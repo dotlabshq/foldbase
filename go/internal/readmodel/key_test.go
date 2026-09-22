@@ -259,3 +259,45 @@ func TestNumericKeyBeyondExactIntegerRangeFailsTheFold(t *testing.T) {
 		t.Fatal(`expected the row keyed "9007199254740991"`)
 	}
 }
+
+// An identity is a string or a whole number. A fractional key is a category
+// error, and it also drags in the question of which literal spelling of a
+// fraction is which row — rejected, so the accepted domain stays statable.
+func TestFractionalNumericKeyFailsTheFold(t *testing.T) {
+	db, reg := setupKeyed(t)
+	if err := ApplyEvent(db, reg, move("order-1", map[string]any{"sku": 1.5, "warehouse": "w1"})); err == nil {
+		t.Fatal("expected a fold error for a fractional key")
+	}
+	if _, ok := stockRow(t, db, "1.5"); ok {
+		t.Fatal("a fractional key must leave no row")
+	}
+}
+
+// A numeric key is taken as its IEEE-754 double value, so two literals that
+// denote the same double are one identity. `1` and `1.0` are the same row on
+// purpose — a JSON number is a double everywhere this runs, JavaScript's own
+// JSON.parse included, and pretending otherwise would promise a fidelity no
+// client can hold up its end of.
+func TestNumericKeyIsItsDoubleValue(t *testing.T) {
+	db, reg := setupKeyed(t)
+	decode := func(raw string) map[string]any {
+		t.Helper()
+		var m map[string]any
+		if err := json.Unmarshal([]byte(raw), &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	for _, raw := range []string{`{"sku": 1, "warehouse": "w1"}`, `{"sku": 1.0, "warehouse": "w1"}`} {
+		if err := ApplyEvent(db, reg, move("order-1", decode(raw))); err != nil {
+			t.Fatalf("fold %s: %v", raw, err)
+		}
+	}
+	n, ok := stockRow(t, db, "1")
+	if !ok {
+		t.Fatal(`expected one row keyed "1"`)
+	}
+	if n != 2 {
+		t.Fatalf("both literals must land on the same row: on_hand %d, want 2", n)
+	}
+}
