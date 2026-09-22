@@ -790,7 +790,7 @@ components:
           enum: [upsert, delete]
         key:
           type: string
-          pattern: "^\\$\\."
+          pattern: "^\\$\\.[^.]+(\\.[^.]+)*$"
           description: >
             The row's identity, as a "$." payload path. Omitted, the row is the
             stream the event landed on — which is what every rule did before
@@ -801,7 +801,9 @@ components:
             succeeds, with projected:false) — there is no safe default, because
             falling back to the stream id would put two kinds of identity in
             one table. Within one projection every rule carries a key or none
-            does; mixing them is rejected at registration.
+            does; mixing them is rejected at registration. A key uses the same
+            payload-path grammar as an inc value: "$." followed by one or more
+            non-empty dot-separated segments.
         set:
           type: object
           propertyNames: { pattern: "^[a-z][a-z0-9_]*$" }

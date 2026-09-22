@@ -113,18 +113,24 @@ def _counters(inc: Any) -> Any:
     return inc(_Path("")) if callable(inc) else inc
 
 
+_PAYLOAD_PATH_RE = re.compile(r"^\$\.[^.]+(\.[^.]+)*$")
+
+
 def _key(key: Any) -> Optional[str]:
-    """A rule key is a payload field (lambda e: e.sku) or a "$." path. Omitted,
-    the row is the stream's, as it always was."""
+    """A rule key is a payload field (lambda e: e.sku) or a "$." path — "$."
+    then one or more non-empty dot-separated segments, the same grammar the
+    server holds an inc value to. Omitted, the row is the stream's, as always."""
     if key is None:
         return None
     val = key(_Path("")) if callable(key) else key
     path = _path_of(val)
-    if path is not None:
+    if path is None:
+        path = val
+    if isinstance(path, str) and _PAYLOAD_PATH_RE.match(path):
         return path
-    if isinstance(val, str) and val.startswith("$."):
-        return val
-    raise ValueError("foldbase: a rule key must be a payload field (e.sku) or a '$.' path")
+    raise ValueError(
+        "foldbase: a rule key must be a payload field (e.sku) or a '$.' path, got %r" % (path,)
+    )
 
 
 class _RuleBuilder:

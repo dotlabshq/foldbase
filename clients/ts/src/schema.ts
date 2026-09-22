@@ -111,7 +111,7 @@ function pathOf(v: unknown): string | undefined {
 type SetMap = Record<string, string | number | boolean | null>
 interface RawRule {
   op: 'upsert' | 'delete'
-  key?: string
+  key?: `$.${string}`
   set?: Record<string, unknown> // column → path-marker | literal
   inc?: Record<string, unknown> // column → path-marker | number
 }
@@ -138,13 +138,16 @@ function resolveCounters<P>(counters: Counters<P> | undefined): Record<string, u
   return typeof counters === 'function' ? (counters(pathProxy('') as P) as Record<string, unknown>) : counters
 }
 
-function resolveKey<P>(key: KeyOf<P> | undefined): string | undefined {
+/** "$." then one or more non-empty dot-separated segments — the same grammar the
+ *  server holds an inc value to. */
+const payloadPathRe = /^\$\.[^.]+(\.[^.]+)*$/
+
+function resolveKey<P>(key: KeyOf<P> | undefined): `$.${string}` | undefined {
   if (key === undefined) return undefined
   const captured = typeof key === 'function' ? key(pathProxy('') as P) : key
-  const path = pathOf(captured)
-  if (path) return path
-  if (typeof captured === 'string' && captured.startsWith('$.')) return captured
-  throw new Error('foldbase: a rule key must be a payload field (e.sku) or a "$." path')
+  const path = pathOf(captured) ?? captured
+  if (typeof path === 'string' && payloadPathRe.test(path)) return path as `$.${string}`
+  throw new Error(`foldbase: a rule key must be a payload field (e.sku) or a "$." path, got ${String(path)}`)
 }
 
 function ruleBuilder<P>(): RuleBuilder<P> {
