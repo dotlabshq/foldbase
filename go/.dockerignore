@@ -1,0 +1,10 @@
+# The image is the binary; the build needs the Go sources and nothing else.
+# Without this, `just dev-go` (DB_URL=file:.dev.db) puts a growing database in
+# the build context and busts the layer cache on every run.
+bin/
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+Dockerfile
+.dockerignore
