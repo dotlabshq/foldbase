@@ -101,6 +101,10 @@ push-docker tag="latest":
 # Multi-arch release: one manifest covering amd64 and arm64, pushed in one go.
 # buildx must push rather than load, because the local daemon holds one
 # architecture at a time and cannot store a manifest list.
+#
+# Needs a builder that can target more than one platform — the containerd image
+# store, or `docker buildx create --use`. The default docker driver on the
+# classic image store refuses a multi-platform build.
 release-docker tag="latest":
     docker buildx build --platform linux/amd64,linux/arm64 \
         -f go/Dockerfile -t {{image}}:{{tag}} --push go
