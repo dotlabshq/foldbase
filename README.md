@@ -20,7 +20,7 @@ emit(event) ──▶ fold (rules as data) ──▶ read_<name> tables ──�
 **No shared central instance.** Every app deploys its own foldbase as a
 private sibling: one static, CGO-free Go binary. Storage is embedded SQLite
 (`file:` / `:memory:`), networked **Turso / libsql** (`libsql://` / `http://sqld:8080`),
-or **PostgreSQL** (`postgres://`) — the same 76 conformance checks green on all
+or **PostgreSQL** (`postgres://`) — the same 87 conformance checks green on all
 three; clients never see the difference (ADR-010/012).
 
 ## Why
@@ -35,7 +35,7 @@ three; clients never see the difference (ADR-010/012).
   never dependent on policy text. No bypass for anyone — not even services.
 - **Contract-first.** Behavior is defined by [openapi.yaml](./openapi.yaml)
   and locked by a language-agnostic [conformance suite](./conformance/run.mjs)
-  (76 checks) that the Go binary greens. A language-agnostic suite means a future
+  (87 checks) that the Go binary greens. A language-agnostic suite means a future
   second implementation can re-adopt it (ADR-011 retired the original TS reference).
 
 ## Try it in 5 minutes — with nothing but curl
@@ -90,6 +90,24 @@ deliberate and does count as zero.
 A rebuild reports the same gap as `skipped`. Events the current rules cannot
 fold are counted and stepped over rather than abandoning the whole view — a
 rebuild is the repair mechanism, so one bad event must not cost every good one.
+
+`key` decides which row a rule writes. Omitted, it is the stream the event
+landed on — one stream, one row, as it has always been. Given a `$.` path, the
+row is identified by the payload instead, so a fold can maintain a total that
+spans streams:
+
+```jsonc
+{
+  "StockMoved":      { "op": "upsert", "key": "$.sku", "inc": { "on_hand": "$.quantity" } },
+  "SkuDiscontinued": { "op": "delete", "key": "$.sku" }
+}
+```
+
+Movements living on order and shipment streams now fold into one row per sku,
+and one stream can write several rows. A key that does not resolve fails the
+fold: there is no safe default, because falling back to the stream id would put
+two kinds of identity in one table. Within a projection every rule carries a key
+or none does — mixing them is rejected when the definition is registered.
 
 **Append events** (optimistic concurrency: `expectedVersion` starts at 0):
 
@@ -266,8 +284,8 @@ always require a service token when auth is on. Full model: [ADR-002…005](./do
 ```bash
 just gate            # the Spek gate: Go unit + conformance + realtime — the oracle
 just build-go        # static binary → go/bin/foldbase
-just conformance     # the behavior lock: Go must green all 76 checks
-just conformance-pg  # the same 76 checks against a real PostgreSQL
+just conformance     # the behavior lock: Go must green all 87 checks
+just conformance-pg  # the same 87 checks against a real PostgreSQL
 just test-all        # gate + TS & Python client query/subscribe smokes
 just authoring-py    # Python typed-authoring test (sets up a pydantic venv)
 just dev-web         # taskboard demo UI → http://localhost:4000

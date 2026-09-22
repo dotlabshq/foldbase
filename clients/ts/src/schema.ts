@@ -111,9 +111,14 @@ function pathOf(v: unknown): string | undefined {
 type SetMap = Record<string, string | number | boolean | null>
 interface RawRule {
   op: 'upsert' | 'delete'
+  key?: string
   set?: Record<string, unknown> // column → path-marker | literal
   inc?: Record<string, unknown> // column → path-marker | number
 }
+
+/** A rule key is a payload field (`(e) => e.sku`) or a `$.` path. Omitted, the
+ *  row is the stream's, as it always was. */
+type KeyOf<P> = string | ((e: P) => unknown)
 
 /** inc takes a plain mapping, or a lambda over the event so a counter can name
  *  a payload field the way upsert already does. */
@@ -121,11 +126,11 @@ type Counters<P> = Record<string, number> | ((e: P) => Record<string, number>)
 
 export interface RuleBuilder<P> {
   /** Merge columns into the row keyed by (tenant, streamId). */
-  upsert(fn: (e: P) => Record<string, string | number | boolean | null>, opts?: { inc?: Counters<P> }): RawRule
+  upsert(fn: (e: P) => Record<string, string | number | boolean | null>, opts?: { inc?: Counters<P>; key?: KeyOf<P> }): RawRule
   /** Add to counters only — a literal, or a payload field (`(e) => ({ n: e.qty })`). */
-  inc(counters: Counters<P>): RawRule
+  inc(counters: Counters<P>, opts?: { key?: KeyOf<P> }): RawRule
   /** Remove the row. */
-  delete(): RawRule
+  delete(opts?: { key?: KeyOf<P> }): RawRule
 }
 
 function resolveCounters<P>(counters: Counters<P> | undefined): Record<string, unknown> | undefined {
@@ -133,18 +138,30 @@ function resolveCounters<P>(counters: Counters<P> | undefined): Record<string, u
   return typeof counters === 'function' ? (counters(pathProxy('') as P) as Record<string, unknown>) : counters
 }
 
+function resolveKey<P>(key: KeyOf<P> | undefined): string | undefined {
+  if (key === undefined) return undefined
+  const captured = typeof key === 'function' ? key(pathProxy('') as P) : key
+  const path = pathOf(captured)
+  if (path) return path
+  if (typeof captured === 'string' && captured.startsWith('$.')) return captured
+  throw new Error('foldbase: a rule key must be a payload field (e.sku) or a "$." path')
+}
+
 function ruleBuilder<P>(): RuleBuilder<P> {
   return {
     upsert(fn, opts) {
       const set = fn(pathProxy('') as P) as Record<string, unknown>
       const inc = resolveCounters(opts?.inc)
-      return { op: 'upsert', set, ...(inc ? { inc } : {}) }
+      const key = resolveKey(opts?.key)
+      return { op: 'upsert', ...(key ? { key } : {}), set, ...(inc ? { inc } : {}) }
     },
-    inc(counters) {
-      return { op: 'upsert', inc: resolveCounters(counters) }
+    inc(counters, opts) {
+      const key = resolveKey(opts?.key)
+      return { op: 'upsert', ...(key ? { key } : {}), inc: resolveCounters(counters) }
     },
-    delete() {
-      return { op: 'delete' }
+    delete(opts) {
+      const key = resolveKey(opts?.key)
+      return { op: 'delete', ...(key ? { key } : {}) }
     },
   }
 }
@@ -187,7 +204,7 @@ export function defineProjection<S extends EventShapes>(
 
   for (const [evtType, raw] of Object.entries(rules) as Array<[string, RawRule]>) {
     if (raw.op === 'delete') {
-      wireOn[evtType] = { op: 'delete' }
+      wireOn[evtType] = { op: 'delete', ...(raw.key ? { key: raw.key } : {}) }
       continue
     }
     const set: SetMap = {}
@@ -214,6 +231,7 @@ export function defineProjection<S extends EventShapes>(
     }
     wireOn[evtType] = {
       op: 'upsert',
+      ...(raw.key ? { key: raw.key } : {}),
       ...(Object.keys(set).length ? { set } : {}),
       ...(Object.keys(inc).length ? { inc } : {}),
     }

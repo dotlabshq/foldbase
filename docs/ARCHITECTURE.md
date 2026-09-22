@@ -24,7 +24,7 @@ polyglot.
 |---|---|
 | `openapi.yaml` | The v1 contract. Every impl + client targets it. |
 | `docs/adr/` | Decisions 001–012 (contract-first, auth, planes, tenant scoping, no-bypass, Go/no-ORM, clients, stream_type, realtime, postgres, TS retirement, libsql). |
-| `conformance/` | `run.mjs` (76 checks) + `realtime.mjs` (13 checks) — boot a server binary and assert the contract over HTTP. The behavior lock. |
+| `conformance/` | `run.mjs` (87 checks) + `realtime.mjs` (13 checks) — boot a server binary and assert the contract over HTTP. The behavior lock. |
 | `go/` | The sole backend (ADR-011) — one static, CGO-free binary, `database/sql`, no ORM (ADR-006). Internals below. |
 | `go/internal/{store,readmodel}` | Event-log repo + the mode-A rules/query engine. |
 | `go/internal/dialect` | The thin storage adapter — SQLite / libsql / PostgreSQL: placeholder rewrite, type map, DDL, introspection (ADR-010/012). |
@@ -58,14 +58,14 @@ polyglot.
 
 ```bash
 just gate               # unit + conformance + realtime — the Spek oracle
-just conformance        # the 76 contract checks (embedded SQLite)
-just conformance-pg     # the same 76 against a real PostgreSQL
-just conformance-libsql # the same 76 against a real Turso/sqld
+just conformance        # the 87 contract checks (embedded SQLite)
+just conformance-pg     # the same 87 against a real PostgreSQL
+just conformance-libsql # the same 87 against a real Turso/sqld
 just test-all        # conformance + realtime + TS & Python client + subscribe smokes
 just dev-web         # taskboard demo UI → http://localhost:4000
 ```
 
-Current status: the Go backend greens **all 76 conformance checks on all three
+Current status: the Go backend greens **all 87 conformance checks on all three
 storage back ends** (embedded SQLite, real Turso/sqld, real PostgreSQL) plus the
 13 realtime checks; both client SDKs pass their query + subscribe smokes.
 

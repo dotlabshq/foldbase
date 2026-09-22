@@ -126,6 +126,10 @@ totals = define_projection("board_totals", Tasks, lambda on: {
 # must be typed from the leaf — not folded to text the way a nested set is
 nested = define_projection("board_points", Tasks, lambda on: {
     "TaskCreated": on.TaskCreated.inc(lambda e: {"points": e.estimate.points}),
+# the row key is a rule too: one row per owner, across every task stream
+per_owner = define_projection("board_per_owner", Tasks, lambda on: {
+    "TaskCreated": on.TaskCreated.inc(lambda e: {"created": 1}, key=lambda e: e.owner),
+    "TaskDeleted": on.TaskDeleted.delete(key=lambda e: e.owner),
 })
 
 
@@ -152,6 +156,12 @@ def main() -> int:
     check("nested inc column typed from the leaf, not text",
           nested.definition["columns"] == {"points": "integer"},
           str(nested.definition["columns"]))
+    check("key proxy → wire path",
+          per_owner.definition["on"]["TaskCreated"]["key"] == "$.owner",
+          str(per_owner.definition["on"]["TaskCreated"]))
+    check("delete carries the same key",
+          per_owner.definition["on"]["TaskDeleted"] == {"op": "delete", "key": "$.owner"},
+          str(per_owner.definition["on"]["TaskDeleted"]))
 
     # runtime path validation: a typo raises at author time
     typo_raised = False

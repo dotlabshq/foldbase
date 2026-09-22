@@ -85,9 +85,13 @@ func validColType(t string) bool {
 
 // OpRule is one event-type rule inside a projection.
 type OpRule struct {
-	Op  string         `json:"op"`
+	Op string `json:"op"`
+	// Key is the row's identity: a "$." payload path, or empty for the stream
+	// the event landed on — which is what every rule did before this existed,
+	// and still does. A key lets a fold maintain a total that spans streams.
+	Key string         `json:"key,omitempty"`
 	Set map[string]any `json:"set,omitempty"`
-	Inc map[string]any     `json:"inc,omitempty"`
+	Inc map[string]any `json:"inc,omitempty"`
 }
 
 // ProjectionDef — a row in _projections; rules as data.
@@ -122,12 +126,21 @@ func ValidateProjection(d *ProjectionDef) error {
 			return &ValidationError{"column type must be text|integer|real|boolean: " + col}
 		}
 	}
+	keyed, unkeyed := 0, 0
 	for evt, rule := range d.On {
 		if !eventTypeRe.MatchString(evt) {
 			return &ValidationError{"event type must be PascalCase: " + evt}
 		}
 		if rule.Op != "upsert" && rule.Op != "delete" {
 			return &ValidationError{"rule op must be upsert|delete"}
+		}
+		if rule.Key == "" {
+			unkeyed++
+		} else {
+			if !strings.HasPrefix(rule.Key, "$.") || len(rule.Key) < 3 {
+				return &ValidationError{"rule key must be a $. payload path: " + evt}
+			}
+			keyed++
 		}
 		for c := range rule.Set {
 			if !isIdentifier(c) {
@@ -142,6 +155,12 @@ func ValidateProjection(d *ProjectionDef) error {
 				return &ValidationError{"inc value must be a number or a $. payload path: " + c}
 			}
 		}
+	}
+	// One projection, one identity scheme. A rule without a key beside rules
+	// with one would put stream-keyed and payload-keyed rows in the same table,
+	// and a delete would point at a row no upsert ever wrote.
+	if keyed > 0 && unkeyed > 0 {
+		return &ValidationError{"a projection keys every rule or none: " + d.Name}
 	}
 	return nil
 }

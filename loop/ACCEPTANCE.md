@@ -16,7 +16,7 @@ GATE_CMD = just gate
 | Step | Command | Proves |
 |---|---|---|
 | unit | `just test-go` | Go engine internals (store, auth, query, dialect) |
-| contract | `just conformance` | the Go binary — the sole implementation since ADR-011 — greens the 76 HTTP contract checks over real HTTP |
+| contract | `just conformance` | the Go binary — the sole implementation since ADR-011 — greens the 87 HTTP contract checks over real HTTP |
 | realtime | `just realtime` | the 13 SSE checks against the Go binary |
 
 Exit 0 ⇔ foldbase upholds [`openapi.yaml`](../openapi.yaml). The contract step
@@ -29,7 +29,7 @@ Extended oracle (client SDKs + Postgres), run in CI:
 
 ```
 just test-all          # gate + TS & Python client query/subscribe smokes
-just conformance-pg    # the 76 checks against a real PostgreSQL (needs an instance)
+just conformance-pg    # the 87 checks against a real PostgreSQL (needs an instance)
 ```
 
 ## Criteria (all machine-checked by the gate)
@@ -67,6 +67,6 @@ executable form. Grouped:
 ## Status
 
 At the time of writing the gate is **green**: Go unit (4 packages) · conformance
-**76/76** on the Go binary — the sole implementation since ADR-011 · realtime
-**13/13** · and **76/76** against a real PostgreSQL 16 (extended oracle). One
+**87/87** on the Go binary — the sole implementation since ADR-011 · realtime
+**13/13** · and **87/87** against a real PostgreSQL 16 (extended oracle). One
 contract, satisfied over three storage dialects — the acceptance proof of a Spek.
