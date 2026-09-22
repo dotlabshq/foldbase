@@ -91,6 +91,7 @@ class TaskCreated(BaseModel):
     owner: str
     title: str
     at: int
+    pinned: bool = False
 
 
 class TaskMoved(BaseModel):
@@ -105,7 +106,7 @@ Tasks = define_aggregate("task", TaskCreated=TaskCreated, TaskMoved=TaskMoved, T
 
 # columns INFERRED from the model field types; proxy paths compile to "$.x"
 tasks = define_projection("tasks", Tasks, lambda on: {
-    "TaskCreated": on.TaskCreated.upsert(lambda e: {"owner": e.owner, "title": e.title, "status": "todo", "created_at": e.at}),
+    "TaskCreated": on.TaskCreated.upsert(lambda e: {"owner": e.owner, "title": e.title, "status": "todo", "created_at": e.at, "pinned": e.pinned}),
     "TaskMoved": on.TaskMoved.upsert(lambda e: {"status": e.status}),
     "TaskDeleted": on.TaskDeleted.delete(),
 })
@@ -118,10 +119,10 @@ def main() -> int:
     # 1. pure authoring assertions (no server needed)
     print("\n▶ Python authoring layer\n")
     check("column inference from model types",
-          tasks.definition["columns"] == {"owner": "text", "title": "text", "status": "text", "created_at": "integer"},
+          tasks.definition["columns"] == {"owner": "text", "title": "text", "status": "text", "created_at": "integer", "pinned": "boolean"},
           str(tasks.definition["columns"]))
     check("proxy path capture → wire rule",
-          tasks.definition["on"]["TaskCreated"]["set"] == {"owner": "$.owner", "title": "$.title", "status": "todo", "created_at": "$.at"},
+          tasks.definition["on"]["TaskCreated"]["set"] == {"owner": "$.owner", "title": "$.title", "status": "todo", "created_at": "$.at", "pinned": "$.pinned"},
           str(tasks.definition["on"]["TaskCreated"]))
     check("delete rule compiled", tasks.definition["on"]["TaskDeleted"] == {"op": "delete"})
     check("inc rule → integer column", stats.definition["columns"] == {"created": "integer"} and stats.definition["on"]["TaskCreated"]["inc"] == {"created": 1})

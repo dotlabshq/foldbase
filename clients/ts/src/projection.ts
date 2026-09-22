@@ -47,7 +47,7 @@ function sqliteType(field: z.ZodTypeAny): ColType {
     case 'ZodNativeEnum':
       return 'text'
     case 'ZodBoolean':
-      return 'integer'
+      return 'boolean'
     case 'ZodNumber': {
       const checks = (base._def as { checks?: Array<{ kind: string }> }).checks ?? []
       return checks.some((c) => c.kind === 'int') ? 'integer' : 'real'
@@ -107,6 +107,8 @@ export function defineProjection<S extends z.ZodObject<z.ZodRawShape>>(
     },
     fromRow(raw) {
       const pre: Record<string, unknown> = { ...raw }
+      // A `boolean` column already arrives as a JSON boolean; this stays so a
+      // client can still read a server that predates the boolean column type.
       for (const key of boolFields) {
         if (key in pre && pre[key] !== null && pre[key] !== undefined) pre[key] = Boolean(pre[key])
       }

@@ -55,7 +55,7 @@ func (d Dialect) Rewrite(q string) string {
 func (d Dialect) ColumnType(t string) string {
 	if d.Kind == Postgres {
 		switch t {
-		case "integer":
+		case "integer", "boolean":
 			return "BIGINT"
 		case "real":
 			return "DOUBLE PRECISION"
@@ -64,7 +64,7 @@ func (d Dialect) ColumnType(t string) string {
 		}
 	}
 	switch t {
-	case "integer":
+	case "integer", "boolean":
 		return "INTEGER"
 	case "real":
 		return "REAL"

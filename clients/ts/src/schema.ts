@@ -71,7 +71,7 @@ function colTypeOfZod(field: z.ZodTypeAny): ColType {
     case 'ZodNativeEnum':
       return 'text'
     case 'ZodBoolean':
-      return 'integer'
+      return 'boolean'
     case 'ZodNumber': {
       const checks = (base._def as { checks?: Array<{ kind: string }> }).checks ?? []
       return checks.some((c) => c.kind === 'int') ? 'integer' : 'real'
@@ -219,6 +219,6 @@ function colTypeFromPath<S extends EventShapes>(catalog: EventCatalog<S>, evtTyp
 
 function colTypeFromLiteral(val: unknown): ColType {
   if (typeof val === 'number') return Number.isInteger(val) ? 'integer' : 'real'
-  if (typeof val === 'boolean') return 'integer'
+  if (typeof val === 'boolean') return 'boolean'
   return 'text'
 }

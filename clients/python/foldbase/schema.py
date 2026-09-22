@@ -74,7 +74,7 @@ def _col_type_of(annotation: Any) -> str:
         return "text"  # Literal['a','b'] — the Python z.enum
     if isinstance(t, type):
         if issubclass(t, bool):  # bool before int (bool is an int subclass)
-            return "integer"
+            return "boolean"
         if issubclass(t, enum.Enum):
             return "text"
         if issubclass(t, int):
@@ -165,7 +165,7 @@ def _col_type_from_path(catalog: EventCatalog, evt_type: str, path: str) -> str:
 
 def _col_type_from_literal(val: Any) -> str:
     if isinstance(val, bool):
-        return "integer"
+        return "boolean"
     if isinstance(val, int):
         return "integer"
     if isinstance(val, float):

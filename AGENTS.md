@@ -9,7 +9,7 @@ quickstart) · [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) (layout) ·
 
 The append-only event log + its folded read models + one generic, policy-gated
 query endpoint. **Contract-first**: [openapi.yaml](./openapi.yaml) is the
-source of truth; the [conformance suite](./conformance/run.mjs) (58 HTTP
+source of truth; the [conformance suite](./conformance/run.mjs) (64 HTTP
 checks) locks behavior against the shipped implementation:
 
 - **Go** (`go/`) — the sole backend and released binary. `database/sql`, no ORM
@@ -62,7 +62,7 @@ schemas — prefer it over hand-written wire defs.
 
 ```bash
 just build-go && just test-go     # binary + Go unit tests
-just conformance                  # Go must green all 58 checks
+just conformance                  # Go must green all 64 checks
 just test-all                     # + TS & Python client smokes
 just dev-web                      # taskboard UI on :4000 (own sibling, file db)
 just release-docker <tag>         # ghcr.io/dotlabshq/foldbase:<tag> (Go image)

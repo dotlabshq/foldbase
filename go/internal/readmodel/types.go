@@ -58,10 +58,16 @@ const (
 	ColText    ColType = "text"
 	ColInteger ColType = "integer"
 	ColReal    ColType = "real"
+	// ColBoolean stores exactly as ColInteger (0/1) and differs only at the
+	// read boundary, where it is handed back as a JSON boolean. Storage being
+	// identical is what makes integer → boolean a definition-only change: no
+	// DDL, no migration, no rebuild.
+	ColBoolean ColType = "boolean"
 )
 
 func validColType(t string) bool {
-	return t == string(ColText) || t == string(ColInteger) || t == string(ColReal)
+	return t == string(ColText) || t == string(ColInteger) ||
+		t == string(ColReal) || t == string(ColBoolean)
 }
 
 // OpRule is one event-type rule inside a projection.
@@ -100,7 +106,7 @@ func ValidateProjection(d *ProjectionDef) error {
 			return &ValidationError{"column name must be a lowercase identifier: " + col}
 		}
 		if !validColType(typ) {
-			return &ValidationError{"column type must be text|integer|real: " + col}
+			return &ValidationError{"column type must be text|integer|real|boolean: " + col}
 		}
 	}
 	for evt, rule := range d.On {

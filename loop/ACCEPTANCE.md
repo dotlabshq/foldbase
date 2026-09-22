@@ -16,7 +16,7 @@ GATE_CMD = just gate
 | Step | Command | Proves |
 |---|---|---|
 | unit | `just test-go` | Go engine internals (store, auth, query, dialect) |
-| contract | `just conformance` | **both** implementations (Go + TS reference) green the 58 HTTP contract checks over real HTTP |
+| contract | `just conformance` | **both** implementations (Go + TS reference) green the 64 HTTP contract checks over real HTTP |
 | realtime | `just realtime` | the 13 SSE checks against the Go binary |
 
 Exit 0 ⇔ foldbase upholds [`openapi.yaml`](../openapi.yaml). The contract step
@@ -29,7 +29,7 @@ Extended oracle (client SDKs + Postgres), run in CI:
 
 ```
 just test-all          # gate + TS & Python client query/subscribe smokes
-just conformance-pg    # the 58 checks against a real PostgreSQL (needs an instance)
+just conformance-pg    # the 64 checks against a real PostgreSQL (needs an instance)
 ```
 
 ## Criteria (all machine-checked by the gate)

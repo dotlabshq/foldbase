@@ -20,7 +20,7 @@ emit(event) ──▶ fold (rules as data) ──▶ read_<name> tables ──�
 **No shared central instance.** Every app deploys its own foldbase as a
 private sibling: one static, CGO-free Go binary. Storage is embedded SQLite
 (`file:` / `:memory:`), networked **Turso / libsql** (`libsql://` / `http://sqld:8080`),
-or **PostgreSQL** (`postgres://`) — the same 58 conformance checks green on all
+or **PostgreSQL** (`postgres://`) — the same 64 conformance checks green on all
 three; clients never see the difference (ADR-010/012).
 
 ## Why
@@ -35,7 +35,7 @@ three; clients never see the difference (ADR-010/012).
   never dependent on policy text. No bypass for anyone — not even services.
 - **Contract-first.** Behavior is defined by [openapi.yaml](./openapi.yaml)
   and locked by a language-agnostic [conformance suite](./conformance/run.mjs)
-  (58 checks) that the Go binary greens. A language-agnostic suite means a future
+  (64 checks) that the Go binary greens. A language-agnostic suite means a future
   second implementation can re-adopt it (ADR-011 retired the original TS reference).
 
 ## Try it in 5 minutes — with nothing but curl
@@ -64,6 +64,12 @@ curl -s -X PUT $BASE/v1/projections -H "X-Tenant-ID: demo" -H "Content-Type: app
 curl -s -X PUT $BASE/v1/policies -H "X-Tenant-ID: demo" -H "Content-Type: application/json" \
   -d '{ "name": "tasks", "role": "*", "using": "owner = :auth_uid" }'
 ```
+
+A column is `text`, `integer`, `real` or `boolean`. `boolean` stores exactly as
+`integer` (0/1) and differs only on the way out, where a query hands it back as
+JSON `true`/`false`; a column no rule has set reads back as `null`, not `false`.
+Because the storage is identical, moving a column from `integer` to `boolean` is
+a definition-only change — no migration and no rebuild.
 
 **Append events** (optimistic concurrency: `expectedVersion` starts at 0):
 
@@ -240,8 +246,8 @@ always require a service token when auth is on. Full model: [ADR-002…005](./do
 ```bash
 just gate            # the Spek gate: Go unit + conformance + realtime — the oracle
 just build-go        # static binary → go/bin/foldbase
-just conformance     # the behavior lock: Go must green all 58 checks
-just conformance-pg  # the same 58 checks against a real PostgreSQL
+just conformance     # the behavior lock: Go must green all 64 checks
+just conformance-pg  # the same 64 checks against a real PostgreSQL
 just test-all        # gate + TS & Python client query/subscribe smokes
 just authoring-py    # Python typed-authoring test (sets up a pydantic venv)
 just dev-web         # taskboard demo UI → http://localhost:4000
