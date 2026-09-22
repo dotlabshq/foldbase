@@ -106,7 +106,9 @@ spans streams:
 Movements living on order and shipment streams now fold into one row per sku,
 and one stream can write several rows. A key that does not resolve fails the
 fold: there is no safe default, because falling back to the stream id would put
-two kinds of identity in one table. Within a projection every rule carries a key
+two kinds of identity in one table. The value must be a string or a number —
+and since a payload's numbers arrive as float64, an integer id past 2^53 fails
+the fold rather than round into another id's identity; send those as strings. Within a projection every rule carries a key
 or none does — mixing them is rejected when the definition is registered.
 
 **Append events** (optimistic concurrency: `expectedVersion` starts at 0):

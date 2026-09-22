@@ -803,7 +803,11 @@ components:
             one table. Within one projection every rule carries a key or none
             does; mixing them is rejected at registration. A key uses the same
             payload-path grammar as an inc value: "$." followed by one or more
-            non-empty dot-separated segments.
+            non-empty dot-separated segments. The resolved value must be a
+            string or a number; a number is rendered as text, and one past the
+            range where a JSON number is an exact integer (2^53) fails the fold
+            rather than round into another id's identity — send such an id as a
+            string.
         set:
           type: object
           propertyNames: { pattern: "^[a-z][a-z0-9_]*$" }
