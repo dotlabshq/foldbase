@@ -12,7 +12,15 @@ loop) reproduces the same verification.
 | Node | 20+ (22 recommended) | TS client (`clients/ts`), the conformance runner (`conformance/*.mjs`) |
 | Python | 3.9+ | Python client core (stdlib only); authoring extra needs pydantic ≥ 2 |
 | just | any | task runner (defines the gate) |
-| Docker | any | the published image (`just build-docker` / `release-docker`); disposable PostgreSQL for `conformance-pg` (optional) |
+| Docker | any | `just build-docker`; disposable PostgreSQL for `conformance-pg` (optional) |
+| Docker Buildx | multi-platform builder | `just release-docker` only — see below |
+
+`just release-docker` builds `linux/amd64` and `linux/arm64` into one manifest,
+which needs a Buildx builder that can target more than one platform: the
+containerd image store, or a `docker-container` builder (`docker buildx create
+--use`). The classic image store with the default `docker` driver refuses a
+multi-platform build. `just build-docker` has no such requirement — it builds
+one image for the machine it runs on.
 
 ## Dependencies (deliberately minimal)
 
