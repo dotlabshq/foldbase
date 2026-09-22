@@ -800,11 +800,13 @@ components:
             oneOf:
               - type: number
               - type: string
-                pattern: "^\\$\\."
+                pattern: "^\\$\\.[^.]+(\\.[^.]+)*$"
           description: >
             Add to a column on every matching event. A number is a literal; a
             "$." string is a payload path resolved like a set value, so a total
-            can be maintained by the fold rather than by the app. A path the
+            can be maintained by the fold rather than by the app. A path is "$."
+            followed by one or more non-empty dot-separated segments, so "$.",
+            "$.a..b" and "$.a." are rejected when the definition is registered. A path the
             payload does not carry, or a value that is not a number, fails the
             fold (the append still succeeds, with projected:false) rather than
             counting as zero — zero is a valid total and could not be told apart

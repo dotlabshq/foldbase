@@ -175,6 +175,29 @@ def _col_type_from_path(catalog: EventCatalog, evt_type: str, path: str) -> str:
     return _col_type_of(field.annotation)
 
 
+def _inc_col_type_from_path(catalog: EventCatalog, evt_type: str, path: str) -> str:
+    """Column type for an inc path. A nested inc path is not folded to JSON the
+    way a nested set is — the server resolves it and adds the number to a
+    numeric column — so the type comes from the leaf. A leaf that is not a
+    number is a definition bug, caught here rather than as a fold error on every
+    event."""
+    model: Any = catalog.schemas.get(evt_type)
+    if model is None:
+        raise ValueError("foldbase: unknown event type '%s'" % evt_type)
+    annotation: Any = None
+    for part in path[2:].split("."):
+        fields = getattr(model, "model_fields", None) if model is not None else None
+        if not fields or part not in fields:
+            raise ValueError("foldbase: inc path %s does not name a field of '%s'" % (path, evt_type))
+        annotation = fields[part].annotation
+        inner = _unwrap_optional(annotation)
+        model = inner if isinstance(inner, type) and issubclass(inner, BaseModel) else None
+    col = _col_type_of(annotation)
+    if col not in ("integer", "real"):
+        raise ValueError("foldbase: inc path %s must name a number, not %s" % (path, col))
+    return col
+
+
 def _col_type_from_literal(val: Any) -> str:
     if isinstance(val, bool):
         return "boolean"
@@ -221,7 +244,7 @@ def define_projection(
             if path is not None:
                 winc[col] = path
                 if col not in fixed:
-                    _infer(cols, col, _col_type_from_path(catalog, raw["_evt"], path))
+                    _infer(cols, col, _inc_col_type_from_path(catalog, raw["_evt"], path))
             else:
                 winc[col] = val
                 if col not in fixed:

@@ -54,7 +54,7 @@ export interface OpRule {
    * zero, because zero is a valid total and could not be told apart from a
    * real one. A field present and explicitly null counts as zero.
    */
-  inc?: Record<string, number | string>
+  inc?: Record<string, number | `$.${string}`>
 }
 
 export interface ProjectionDef {

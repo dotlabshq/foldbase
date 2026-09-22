@@ -79,8 +79,10 @@ maintained by the fold rather than by the app:
 ```
 
 A path the payload does not carry, or a value that is not a number, **fails the
-fold** — the append still succeeds and returns `projected:false`, and a rebuild
-recovers the true total from the log. It does not count as zero: zero is a valid
+fold** — the append still succeeds and returns `projected:false`. Fix the
+definition, then rebuild: a rebuild replays the log through the *current* rules,
+so it recovers the true total only once those rules are right. Until then it
+skips the same events again and says so. It does not count as zero: zero is a valid
 total and could not be told apart from a real one, so nothing would look wrong
 and the mistake would never be found. A field present and explicitly `null` is
 deliberate and does count as zero.
