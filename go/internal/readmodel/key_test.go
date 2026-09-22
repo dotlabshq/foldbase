@@ -2,6 +2,7 @@ package readmodel
 
 import (
 	"database/sql"
+	"encoding/json"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -225,5 +226,36 @@ func TestRebuildIsDeterministicWithPayloadKeys(t *testing.T) {
 	}
 	if n, _ := stockRow(t, db, "B2"); n != 1 {
 		t.Fatalf("B2 after rebuild: got %d, want 1", n)
+	}
+}
+
+// A payload arrives through json.Unmarshal into map[string]any, so every JSON
+// number is a float64. Past 2^53 an integer is no longer the number the client
+// sent — two different ids round to the same float and would quietly become one
+// row. That is the one thing this whole rule exists to prevent.
+func TestNumericKeyBeyondExactIntegerRangeFailsTheFold(t *testing.T) {
+	db, reg := setupKeyed(t)
+	decode := func(raw string) map[string]any {
+		t.Helper()
+		var m map[string]any
+		if err := json.Unmarshal([]byte(raw), &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+
+	if err := ApplyEvent(db, reg, move("order-1", decode(`{"sku": 9007199254740993, "warehouse": "w1"}`))); err == nil {
+		t.Fatal("expected a fold error for a numeric key past float64's exact-integer range")
+	}
+	if _, ok := stockRow(t, db, "9007199254740992"); ok {
+		t.Fatal("a key that cannot be represented exactly must leave no row")
+	}
+
+	// Just inside the range is an exact integer and folds normally.
+	if err := ApplyEvent(db, reg, move("order-2", decode(`{"sku": 9007199254740991, "warehouse": "w1"}`))); err != nil {
+		t.Fatalf("a key inside the exact-integer range must fold: %v", err)
+	}
+	if _, ok := stockRow(t, db, "9007199254740991"); !ok {
+		t.Fatal(`expected the row keyed "9007199254740991"`)
 	}
 }

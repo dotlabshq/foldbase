@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -135,7 +136,17 @@ func resolveKey(rule OpRule, e EventLike) (string, error) {
 		}
 		return k, nil
 	// id is TEXT, so a numeric key is rendered as text — 42, not 42.000000.
+	//
+	// A payload arrives through json.Unmarshal into map[string]any, so every
+	// JSON number is a float64. Past 2^53 an integer is no longer the number the
+	// client sent: two distinct ids round to the same float and would quietly
+	// become one row, which is the single thing this rule exists to prevent.
 	case float64:
+		if math.Abs(k) >= 1<<53 {
+			return "", &FoldError{fmt.Sprintf(
+				"key %s: %s is past the range where a JSON number is an exact integer — send the id as a string",
+				rule.Key, strconv.FormatFloat(k, 'f', -1, 64))}
+		}
 		return strconv.FormatFloat(k, 'f', -1, 64), nil
 	case int:
 		return strconv.Itoa(k), nil
