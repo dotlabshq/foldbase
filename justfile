@@ -35,6 +35,17 @@ conformance-libsql: build-go
     FB_DB_RESET="$FBRESET" \
     node conformance/run.mjs --cmd "./bin/foldbase" --dir ./go
 
+# Persistence: the log, registry and read models survive a crash (SIGKILL) and
+# restart. Default target is a fresh file: SQLite; FB_DB_URL points it at a real
+# store instead — non-destructive, it writes under a tenant unique to the run.
+persistence: build-go
+    node conformance/persistence.mjs --cmd "./bin/foldbase" --dir ./go
+
+# The same suite against Turso (or any libsql/sqld): pass the database url,
+# e.g. just persistence-turso "libsql://<db>-<org>.turso.io?authToken=<token>"
+persistence-turso url: build-go
+    FB_DB_URL="{{url}}" node conformance/persistence.mjs --cmd "./bin/foldbase" --dir ./go
+
 # Realtime (SSE) conformance — Go-first (ADR-009); targets the Go binary.
 realtime: build-go
     node conformance/realtime.mjs --cmd "./bin/foldbase" --dir ./go
@@ -74,7 +85,7 @@ test-all: conformance realtime smoke-ts smoke-py subscribe-ts subscribe-py autho
 
 # The Spek gate (loop/ACCEPTANCE.md): the single machine oracle that proves the
 # behavioral contract. Exit 0 ⇔ the Go binary upholds openapi.yaml.
-gate: test-go conformance realtime
+gate: test-go conformance realtime persistence
 
 # ── dev servers ───────────────────────────────────────────────────────────────
 
