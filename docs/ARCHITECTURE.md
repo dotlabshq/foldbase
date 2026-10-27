@@ -23,7 +23,7 @@ polyglot.
 | Path | What |
 |---|---|
 | `openapi.yaml` | The v1 contract. Every impl + client targets it. |
-| `docs/adr/` | Decisions 001–012 (contract-first, auth, planes, tenant scoping, no-bypass, Go/no-ORM, clients, stream_type, realtime, postgres, TS retirement, libsql). |
+| `docs/adr/` | Decisions 001–013 (contract-first, auth, planes, tenant scoping, no-bypass, Go/no-ORM, clients, stream_type, realtime, postgres, TS retirement, libsql, Flect binding). |
 | `conformance/` | `run.mjs` (87 checks) + `realtime.mjs` (13 checks) — boot a server binary and assert the contract over HTTP. The behavior lock. |
 | `go/` | The sole backend (ADR-011) — one static, CGO-free binary, `database/sql`, no ORM (ADR-006). Internals below. |
 | `go/internal/{store,readmodel}` | Event-log repo + the mode-A rules/query engine. |
@@ -39,7 +39,7 @@ polyglot.
 | Var | Meaning |
 |---|---|
 | `PORT` | listen port (default 3001) |
-| `DB_URL` | `postgres://…` (pgx) · `libsql://…` / `http(s)://` / `ws(s)://` (Turso/sqld) · `:memory:` / `file:…` (embedded SQLite) |
+| `DB_URL` | `postgres://…` (pgx) · `libsql://…` / `http(s)://` / `ws(s)://` (Turso/sqld) · `flect://<binding>` (a Flect database binding, ADR-013) · `:memory:` / `file:…` (embedded SQLite) |
 | `FOLDBASE_AUTH` | `none` \| `service-jwt` \| `user-jwt` (ADR-002) |
 | `FOLDBASE_JWT_SECRET` | HS256 realm secret (required in secured modes) |
 | `FOLDBASE_ADMIN_TOKEN` | optional control-plane gate in `none` mode (ADR-003) |

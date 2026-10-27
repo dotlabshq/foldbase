@@ -17,6 +17,7 @@ bindings — are a separate series.)
 | [010](./010-postgres-dialect.md) | PostgreSQL via a thin dialect adapter (placeholder rewrite, type map, RETURNING); clients unchanged | accepted |
 | [011](./011-retire-ts-reference.md) | Retire the TS reference; Go is the sole backend | accepted |
 | [012](./012-libsql-turso.md) | Turso / libsql (sqld) support as a remote SQLite dialect (pure-Go, CGO-free) | accepted |
+| [013](./013-flect-binding.md) | `DB_URL=flect://<binding>`: resolve the database through the Flect broker and renew its credentials | accepted |
 
 Standing context (decided earlier, reaffirmed): **instance-per-app deployment —
 no shared central foldbase.** Each app runs its own instance as a private

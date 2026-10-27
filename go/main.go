@@ -5,6 +5,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/dotlabshq/foldbase/internal/auth"
 	"github.com/dotlabshq/foldbase/internal/dialect"
+	"github.com/dotlabshq/foldbase/internal/flectdb"
 	"github.com/dotlabshq/foldbase/internal/httpapi"
 	"github.com/dotlabshq/foldbase/internal/readmodel"
 	"github.com/dotlabshq/foldbase/internal/store"
@@ -80,6 +82,8 @@ func main() {
 //	postgres:// | postgresql://                 → PostgreSQL (pgx)
 //	libsql:// | ws(s):// | http(s)://            → Turso / sqld remote (libsql, Hrana; pure-Go)
 //	:memory: | file:<path>                       → embedded SQLite (modernc, CGO-free)
+//	flect://<binding>                            → a Flect database binding, resolved
+//	                                               through the broker and renewed (libsql)
 //
 // libsql speaks the SQLite dialect end-to-end (same SQL, LastInsertId, PRAGMA),
 // so a remote sqld is just the SQLite dialect over the network.
@@ -110,6 +114,24 @@ func openDB() (*dialect.Conn, string, error) {
 		}
 		return dialect.New(db, dialect.Dialect{Kind: dialect.SQLite}), redact(url), nil
 
+	case strings.HasPrefix(url, "flect://"):
+		binding, err := flectdb.Binding(url)
+		if err != nil {
+			return nil, "", err
+		}
+		cfg, err := flectdb.ConfigFromEnv()
+		if err != nil {
+			return nil, "", err
+		}
+		db, err := flectdb.Open(context.Background(), binding, cfg)
+		if err != nil {
+			return nil, "", err
+		}
+		if err := db.Ping(); err != nil {
+			return nil, "", fmt.Errorf("flect binding %q: %w", binding, err)
+		}
+		return dialect.New(db, dialect.Dialect{Kind: dialect.SQLite}), url + " via " + cfg.BrokerURL, nil
+
 	case url == ":memory:":
 		db, err := sql.Open("sqlite", ":memory:")
 		if err != nil {
@@ -134,7 +156,7 @@ func openDB() (*dialect.Conn, string, error) {
 		return dialect.New(db, dialect.Dialect{Kind: dialect.SQLite}), url, nil
 
 	default:
-		return nil, "", fmt.Errorf("unsupported DB_URL %q (postgres://, :memory:, or file:)", url)
+		return nil, "", fmt.Errorf("unsupported DB_URL %q (postgres://, libsql://, http(s)://, ws(s)://, flect://<binding>, file:, or :memory:)", url)
 	}
 }
 

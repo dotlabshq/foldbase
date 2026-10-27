@@ -46,6 +46,23 @@ persistence: build-go
 persistence-turso url: build-go
     FB_DB_URL="{{url}}" node conformance/persistence.mjs --cmd "./bin/foldbase" --dir ./go
 
+# The same suite through DB_URL=flect://DB (ADR-013): a namespaced sqld in
+# docker, a namespace created through its admin API, and a stand-in broker in
+# direct mode. Gateway mode needs Flect's gateway; see ADR-013.
+persistence-flect: build-go
+    #!/usr/bin/env bash
+    set -euo pipefail
+    docker rm -f fb-flect-sqld >/dev/null 2>&1 || true
+    docker run -d --name fb-flect-sqld -p 18092:8080 -p 18093:9090 ghcr.io/tursodatabase/libsql-server:latest \
+        sqld --http-listen-addr 0.0.0.0:8080 --admin-listen-addr 0.0.0.0:9090 --enable-namespaces >/dev/null
+    trap 'kill $broker 2>/dev/null; wait $broker 2>/dev/null || true; docker rm -f fb-flect-sqld >/dev/null' EXIT
+    for i in $(seq 1 50); do curl -sf -X POST -H 'content-type: application/json' -d '{}' \
+        http://127.0.0.1:18093/v1/namespaces/acme-clave-db-1/create >/dev/null && break; sleep 0.3; done
+    MODE=direct node conformance/flect-broker.mjs & broker=$!
+    sleep 0.5
+    FB_DB_URL=flect://DB FLECT_BROKER_URL=http://127.0.0.1:18094 FLECT_TOKEN=app-token \
+        node conformance/persistence.mjs --cmd "./bin/foldbase" --dir ./go
+
 # Realtime (SSE) conformance — Go-first (ADR-009); targets the Go binary.
 realtime: build-go
     node conformance/realtime.mjs --cmd "./bin/foldbase" --dir ./go

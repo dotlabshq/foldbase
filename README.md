@@ -283,7 +283,8 @@ always require a service token when auth is on. Full model: [ADR-002…005](./do
 | Var | Meaning |
 |---|---|
 | `PORT` | listen port (default 3001) |
-| `DB_URL` | `postgres://…` \| `libsql://…` / `http://sqld:8080` \| `:memory:` \| `file:<path>` (default `:memory:`) |
+| `DB_URL` | `postgres://…` \| `libsql://…` / `http://sqld:8080` \| `flect://<binding>` \| `:memory:` \| `file:<path>` (default `:memory:`) |
+| `FLECT_BROKER_URL`, `FLECT_TOKEN` | set by Flect in the container; a `flect://` DB_URL resolves its binding with them (ADR-013) |
 | `FOLDBASE_AUTH` | `none` \| `service-jwt` \| `user-jwt` |
 | `FOLDBASE_JWT_SECRET` | HS256 realm secret (secured modes) |
 | `FOLDBASE_ADMIN_TOKEN` | optional control-plane gate in `none` mode |
