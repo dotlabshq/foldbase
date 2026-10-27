@@ -1,7 +1,7 @@
 {
   "name": "@baseworks/foldbase",
-  "version": "0.1.1",
-  "description": "TypeScript client for foldbase \u2014 append, query, and typed projection authoring over HTTP. Zod only; no drizzle, no libsql.",
+  "version": "0.2.0",
+  "description": "TypeScript client for foldbase — append, query, and typed projection authoring over HTTP. Zod only; no drizzle, no libsql.",
   "type": "module",
   "publishConfig": {
     "access": "public"
@@ -16,7 +16,8 @@
   },
   "files": [
     "dist",
-    "src"
+    "src",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsup",

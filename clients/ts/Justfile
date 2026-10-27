@@ -8,9 +8,14 @@ typecheck:
 test:
     node --import tsx test/smoke.mjs
 
+# Typed authoring layer — pure assertions, no server.
+authoring:
+    node --import tsx test/authoring.mjs
+
 # Gate before publish. Smoke is E2E (needs a server), so publish gates on
-# typecheck + build; run `just test` separately against a booted server.
-verify: typecheck build
+# typecheck + build + the server-free authoring test; run `just test`
+# separately against a booted server.
+verify: typecheck build authoring
 
 patch: verify
     npm version patch --no-git-tag-version
