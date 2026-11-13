@@ -10,6 +10,13 @@ build-go:
 test-go:
     cd go && GOWORK=off go test ./...
 
+# Needs the disposable container conformance-pg also uses:
+#   docker run -d --rm --name fbpg -e POSTGRES_PASSWORD=fb -e POSTGRES_DB=foldbase \
+#     -p 127.0.0.1:55432:5432 postgres:16-alpine
+# Go HTTP tests against a real Postgres (each test in its own schema, dropped after).
+test-go-pg:
+    cd go && GOWORK=off FOLDBASE_TEST_PG="postgres://postgres:fb@localhost:55432/foldbase" go test ./internal/httpapi/
+
 # ── conformance (the behavior lock, ADR-001) ─────────────────────────────────────────────────────────────────
 
 # Run the language-agnostic HTTP conformance suite against the Go binary — the

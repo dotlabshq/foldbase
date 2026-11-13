@@ -178,9 +178,11 @@ curl -sN "$BASE/v1/subscribe?type=task" -H "X-Tenant-ID: demo"
 # : ping                                       ← heartbeat keeps the stream alive
 ```
 
-Delivery is ordered and gap-free: on reconnect the stream resumes from the last
-`id` (globalSeq) via the `Last-Event-ID` header — catch-up then live tail. The
-owning app subscribes with a service token and relays to its users (ADR-009).
+Delivery is ordered and gap-free, also under concurrent appends: on reconnect
+the stream resumes from the last `id` (globalSeq) via the `Last-Event-ID`
+header — catch-up then live tail, every event read from the log in globalSeq
+order. The owning app subscribes with a service token and relays to its users
+(ADR-009).
 
 ## Client SDKs
 
@@ -289,6 +291,22 @@ always require a service token when auth is on. Full model: [ADR-002…005](./do
 | `FOLDBASE_JWT_SECRET` | HS256 realm secret (secured modes) |
 | `FOLDBASE_ADMIN_TOKEN` | optional control-plane gate in `none` mode |
 
+## Reading history written before a rename
+
+A projection path (`$.owner_id`, in `set`, `inc` or `key`, at any depth) that is
+**absent** in a payload is read from its camelCase spelling: each `_` is dropped
+and the letter after it upper-cased (`external_id` → `externalId`, `a_b_c` →
+`aBC`), segment by segment (`$.line_items.unit_price` →
+`lineItems.unitPrice`). A snake_case key that exists always wins, even when its
+value is `null`; the fallback only fills absence, and only from snake_case to
+camelCase. An `inc` path absent under both spellings is still a fold error, and
+so is a `key`.
+
+This is what lets a service rename its payload fields without rewriting the log:
+old events keep their camelCase payloads, new ones are written snake_case, and
+one projection folds both. A server older than this reads old events under a
+snake_case projection as NULL columns (healed by a rebuild on the new binary).
+
 ## Develop & verify
 
 ```bash
@@ -296,6 +314,7 @@ just gate            # the Spek gate: Go unit + conformance + realtime — the o
 just build-go        # static binary → go/bin/foldbase
 just conformance     # the behavior lock: Go must green all 87 checks
 just conformance-pg  # the same 87 checks against a real PostgreSQL
+just test-go-pg      # Go HTTP tests (concurrent subscribe) against a real PostgreSQL
 just test-all        # gate + TS & Python client query/subscribe smokes
 just authoring-py    # Python typed-authoring test (sets up a pydantic venv)
 just dev-web         # taskboard demo UI → http://localhost:4000

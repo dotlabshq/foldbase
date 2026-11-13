@@ -153,6 +153,20 @@ func (s *Store) Append(tenant, streamID, streamType string, expectedVersion int6
 	}
 	defer tx.Rollback() //nolint:errcheck
 
+	// One append per tenant at a time, so a tenant's events commit in
+	// globalSeq order and a reader never sees seq N+1 while N is still in
+	// flight (issue #13). Postgres assigns an identity at insert, not at
+	// commit, so it needs the lock; it is transaction-scoped and released by
+	// commit, rollback or a dropped connection, so it cannot be left held.
+	// SQLite and sqld already run one write transaction at a time. The
+	// two-key form keeps foldbase's locks apart from anyone else's in the
+	// same database; a hash collision between tenants only serializes them.
+	if s.db.D.Kind == dialect.Postgres {
+		if _, err := tx.Exec(`SELECT pg_advisory_xact_lock(hashtext('foldbase.append'), hashtext(?))`, tenant); err != nil {
+			return nil, err
+		}
+	}
+
 	// Version + existing stream type in one aggregate query (all events of a
 	// stream share one stream_type, so MAX() reads it for free).
 	var cur int64

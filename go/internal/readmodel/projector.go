@@ -23,7 +23,8 @@ type FoldError struct{ Msg string }
 
 func (e *FoldError) Error() string { return e.Msg }
 
-// payloadPath resolves a "$.a.b" path against the event payload. The second
+// payloadPath resolves a "$.a.b" path against the event payload (a snake_case
+// segment that is absent falls back to its camelCase spelling). The second
 // result reports whether the path exists at all: a field that is absent and a
 // field explicitly set to null are different facts, and inc has to tell them
 // apart.
@@ -36,11 +37,43 @@ func payloadPath(payload map[string]any, path string) (any, bool) {
 		}
 		v, ok := m[key]
 		if !ok {
+			// Reading history written before a rename: a snake_case name that
+			// is absent is looked up under its camelCase spelling. A key that
+			// exists always wins; this is only for absence.
+			if alt := camelCase(key); alt != key {
+				v, ok = m[alt]
+			}
+		}
+		if !ok {
 			return nil, false
 		}
 		cur = v
 	}
 	return cur, true
+}
+
+// camelCase spells a snake_case name the way it was written before the rename:
+// each "_" is dropped and the letter after it upper-cased
+// (external_id → externalId, a_b_c → aBC). A name with no "_" is unchanged.
+func camelCase(s string) string {
+	if !strings.Contains(s, "_") {
+		return s
+	}
+	var b strings.Builder
+	up := false
+	for _, r := range s {
+		if r == '_' {
+			up = true
+			continue
+		}
+		if up {
+			b.WriteString(strings.ToUpper(string(r)))
+			up = false
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // resolveSet: a string starting with "$." is a payload path, else a literal.
