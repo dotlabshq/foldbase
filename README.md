@@ -178,9 +178,11 @@ curl -sN "$BASE/v1/subscribe?type=task" -H "X-Tenant-ID: demo"
 # : ping                                       ← heartbeat keeps the stream alive
 ```
 
-Delivery is ordered and gap-free: on reconnect the stream resumes from the last
-`id` (globalSeq) via the `Last-Event-ID` header — catch-up then live tail. The
-owning app subscribes with a service token and relays to its users (ADR-009).
+Delivery is ordered and gap-free, also under concurrent appends: on reconnect
+the stream resumes from the last `id` (globalSeq) via the `Last-Event-ID`
+header — catch-up then live tail, every event read from the log in globalSeq
+order. The owning app subscribes with a service token and relays to its users
+(ADR-009).
 
 ## Client SDKs
 
@@ -312,6 +314,7 @@ just gate            # the Spek gate: Go unit + conformance + realtime — the o
 just build-go        # static binary → go/bin/foldbase
 just conformance     # the behavior lock: Go must green all 87 checks
 just conformance-pg  # the same 87 checks against a real PostgreSQL
+just test-go-pg      # Go HTTP tests (concurrent subscribe) against a real PostgreSQL
 just test-all        # gate + TS & Python client query/subscribe smokes
 just authoring-py    # Python typed-authoring test (sets up a pydantic venv)
 just dev-web         # taskboard demo UI → http://localhost:4000

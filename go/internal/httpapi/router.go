@@ -270,8 +270,8 @@ func (a *App) subscribe(w http.ResponseWriter, r *http.Request, res *auth.Resolv
 		}
 	}
 
-	// Subscribe to live BEFORE catch-up so nothing appended in between is lost;
-	// the lastSeq dedup drops the overlap.
+	// Subscribe to live BEFORE catch-up so an append in between still wakes
+	// us; the cursor read after it skips whatever catch-up already sent.
 	id, ch, over := a.bus.Subscribe(res.Tenant)
 	defer a.bus.Unsubscribe(res.Tenant, id)
 
@@ -289,17 +289,34 @@ func (a *App) subscribe(w http.ResponseWriter, r *http.Request, res *auth.Resolv
 		flusher.Flush()
 	}
 
-	// Catch-up: replay the log from the cursor (tenant-scoped, optional category).
+	// Every event comes from the log, read from the cursor in globalSeq order
+	// (tenant-scoped, optional category). The bus only says "something was
+	// appended": the order in which appends reach it is not their commit
+	// order, so its events are never sent themselves (issue #13). The store
+	// makes a tenant's events commit in globalSeq order, so a cursor read
+	// never skips one.
 	lastSeq := from
-	events, err := a.store.ReadAll(res.Tenant, from, typeFilter, 0)
-	if err != nil {
+	drain := func() bool {
+		for {
+			events, err := a.store.ReadAll(res.Tenant, lastSeq, typeFilter, maxReadLimit)
+			if err != nil {
+				return false
+			}
+			for _, e := range events {
+				send(e)
+				lastSeq = e.GlobalSeq
+			}
+			if int64(len(events)) < maxReadLimit {
+				return true
+			}
+		}
+	}
+
+	// Catch-up, then a comment line that signals "caught up, now live" and
+	// doubles as a flush.
+	if !drain() {
 		return
 	}
-	for _, e := range events {
-		send(e)
-		lastSeq = e.GlobalSeq
-	}
-	// A comment line signals "caught up, now live" and doubles as a flush.
 	fmt.Fprint(w, ": live\n\n")
 	flusher.Flush()
 
@@ -314,15 +331,21 @@ func (a *App) subscribe(w http.ResponseWriter, r *http.Request, res *auth.Resolv
 		case <-ticker.C:
 			fmt.Fprint(w, ": ping\n\n") // heartbeat keeps proxies from timing out
 			flusher.Flush()
-		case e := <-ch:
-			if e.GlobalSeq <= lastSeq {
-				continue // overlap with catch-up
+			if !drain() { // and a missed wake-up costs at most one interval
+				return
 			}
-			if typeFilter != "" && e.StreamType != typeFilter {
-				continue
+		case <-ch:
+			// Coalesce: one read covers every wake-up already queued.
+			for pending := true; pending; {
+				select {
+				case <-ch:
+				default:
+					pending = false
+				}
 			}
-			send(e)
-			lastSeq = e.GlobalSeq
+			if !drain() {
+				return
+			}
 		}
 	}
 }
